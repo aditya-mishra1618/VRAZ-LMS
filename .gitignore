@@ -1,0 +1,124 @@
+# =================================================================
+# General Purpose Ignores
+# =================================================================
+
+# Miscellaneous files from various editors and operating systems
+.DS_Store
+.atom/
+.buildlog/
+.history
+.svn/
+Thumbs.db
+
+# Log files
+*.log
+
+# =================================================================
+# Flutter and Dart Ignores
+# =================================================================
+
+# The build directory contains compiled code and other build artifacts.
+# This is the most important one to ignore to prevent "Filename too long" errors.
+/build/
+
+# Dart's package manager and tool cache. Contains dependency information and build caches.
+.dart_tool/
+
+# Old package configuration files. Replaced by .dart_tool/
+.packages
+.pub-cache/
+.pub/
+
+# Generated plugin registration files. These are created automatically.
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Generated documentation
+/doc/api/
+
+# =================================================================
+# IDE and Editor Configuration
+# =================================================================
+
+# IntelliJ and Android Studio
+.idea/
+*.iml
+*.iws
+
+# Visual Studio Code
+.vscode/
+
+# =================================================================
+# Platform-Specific Ignores
+# =================================================================
+
+# Android specific build files and user configuration
+# ----------------------------------------------------
+# Compiled application packages
+*.apk
+*.aab
+
+# Contains local paths, like the path to the Android SDK.
+# This file is specific to each developer's machine and should NOT be committed.
+/android/local.properties
+
+# Gradle cache
+/android/.gradle/
+
+# iOS and macOS specific build files
+# ----------------------------------------------------
+# CocoaPods dependency manager files
+/ios/Pods/
+/ios/Podfile.lock
+/macos/Pods/
+/macos/Podfile.lock
+
+# Xcode workspace and user data files
+/ios/*.xcworkspace/
+/ios/.symlinks/
+/macos/*.xcworkspace/
+/macos/.symlinks/
+*.xccheckout
+*.xcscheme
+xcuserdata/
+
+# Flutter-generated files in the native directories
+/ios/Flutter/App.framework
+/ios/Flutter/Flutter.framework
+/ios/Flutter/Generated.xcconfig
+/ios/Flutter/flutter_export_environment.sh
+/macos/Flutter/ephemeral/
+
+# Web specific build files
+# ----------------------------------------------------
+/web/build/
+/web/.dart_tool/
+
+# Windows specific build files
+# ----------------------------------------------------
+/windows/flutter/ephemeral/
+/windows/runner/Debug/
+/windows/runner/Profile/
+/windows/runner/Release/
+/windows/.vs/
+
+# Linux specific build files
+# ----------------------------------------------------
+/linux/flutter/ephemeral/
+
+# =================================================================
+# Sensitive and Configuration Files (Good Practice)
+# =================================================================
+
+# Never commit files containing secrets, API keys, or credentials.
+# It's good practice to add them here.
+# For example:
+# secrets.json
+# *.env
+# /android/key.properties
+
+# Firebase configuration files often contain project identifiers.
+# While not strictly secret, some teams prefer not to commit them.
+# If you add these from the Firebase console, they should be added here.
+# google-services.json
+# GoogleService-Info.plist
