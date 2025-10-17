@@ -6,16 +6,13 @@ import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:vraz_application/Student/Student_dashboard.dart';
 
-import 'Parents/Teacher/Teacher_Dashboard_Screen.dart';
+import 'Admin/admin_dashboard_screen.dart';
 import 'Parents/parents_dashboard.dart';
 import 'Student/auth_models.dart';
-import 'admin_dashboard_screen.dart';
+import 'Teacher/Teacher_Dashboard_Screen.dart';
 // --- Imports for Session Management & API Config ---
 import 'api_config.dart';
 import 'session_manager.dart';
-
-// This file combines the UI you provided (with separate OTP boxes)
-// with the advanced login logic (remembering student logins).
 
 class LoginScreen extends StatefulWidget {
   final String role;
@@ -26,7 +23,6 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  // --- State Variables from your UI ---
   bool _otpSent = false;
   final TextEditingController _mobileController = TextEditingController();
   final List<TextEditingController> _otpControllers =
@@ -35,7 +31,6 @@ class _LoginScreenState extends State<LoginScreen> {
   Timer? _timer;
   int _start = 30;
 
-  // --- State Variables for API and Session Handling ---
   bool _isLoading = false;
   String? _errorMessage;
 
@@ -52,8 +47,6 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  // --- API Methods ---
-
   Future<bool> _sendOtpApi(String phoneNumber) async {
     final url = Uri.parse('${ApiConfig.baseUrl}/api/users/login/otp');
     try {
@@ -63,12 +56,19 @@ class _LoginScreenState extends State<LoginScreen> {
         body: json.encode({'phoneNumber': phoneNumber}),
       );
 
-      if (response.statusCode == 200 || response.statusCode == 201) {
+      // A successful request might be 200 or 21 (Created)
+      if (response.statusCode >= 200 && response.statusCode < 300) {
         return true;
       } else {
+        // Capture error message from the backend if available
+        final responseBody = json.decode(response.body);
+        _errorMessage = responseBody['message'] ?? 'Unknown error occurred.';
         return false;
       }
     } catch (e) {
+      // --- FIX: Added a print statement for better debugging ---
+      print("Error in _sendOtpApi: $e");
+      _errorMessage = 'Network error. Please check your connection.';
       return false;
     }
   }
@@ -85,17 +85,21 @@ class _LoginScreenState extends State<LoginScreen> {
       if (response.statusCode == 200) {
         return json.decode(response.body);
       } else {
+        final responseBody = json.decode(response.body);
+        _errorMessage = responseBody['message'] ?? 'Invalid OTP.';
         return null;
       }
     } catch (e) {
+      // --- FIX: Added a print statement for better debugging ---
+      print("Error in _verifyOtpApi: $e");
+      _errorMessage = 'Network error. Please check your connection.';
       return null;
     }
   }
 
-  // --- Logic Handlers ---
-
   void startTimer() {
     _start = 30;
+    _timer?.cancel(); // Cancel any existing timer
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
         timer.cancel();
@@ -109,7 +113,6 @@ class _LoginScreenState extends State<LoginScreen> {
     });
   }
 
-  /// This is now the main entry point for the student login button.
   void _handleStudentLoginAttempt() async {
     if (_mobileController.text.length != 10) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -124,33 +127,100 @@ class _LoginScreenState extends State<LoginScreen> {
       _errorMessage = null;
     });
 
-    final sessionManager = Provider.of<SessionManager>(context, listen: false);
-    final phoneNumber = _mobileController.text;
+    try {
+      final sessionManager =
+          Provider.of<SessionManager>(context, listen: false);
+      final phoneNumber = _mobileController.text;
 
-    // 1. Check for a saved session for this phone number
-    final savedSession = await sessionManager.getSavedSession(phoneNumber);
+      final savedSession = await sessionManager.getSavedSession(phoneNumber);
 
-    if (savedSession != null) {
-      // --- DIRECT LOGIN FLOW ---
-      print("Found saved session for $phoneNumber. Logging in directly.");
-      final user = savedSession['user'] as UserModel;
-      final token = savedSession['token'] as String;
+      if (savedSession != null) {
+        final user = savedSession['user'] as UserModel;
+        final token = savedSession['token'] as String;
+        await sessionManager.createSession(user, token, phoneNumber);
 
-      // Reactivate the session by calling createSession again
-      await sessionManager.createSession(user, token, phoneNumber);
-
-      if (!mounted) return;
-
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (context) => const StudentDashboard()),
-        (route) => false,
-      );
-    } else {
-      // --- OTP FLOW (for new or unrecognized numbers) ---
-      print("No saved session for $phoneNumber. Proceeding with OTP.");
-      await _requestAndSendOtp();
+        if (!mounted) return;
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => const StudentDashboard()),
+          (route) => false,
+        );
+      } else {
+        // --- FIX: This is the main change ---
+        // This now properly waits for the API call and handles the UI update.
+        await _requestAndSendOtp();
+      }
+    } catch (e) {
+      // Catch any unexpected errors during the process
+      if (mounted) {
+        setState(() {
+          _errorMessage = "An unexpected error occurred: $e";
+        });
+      }
+    } finally {
+      // Ensure the loading indicator is always turned off
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
+  }
+
+  Future<void> _requestAndSendOtp() async {
+    final success = await _sendOtpApi(_mobileController.text);
+    if (!mounted) return;
+
+    // This setState will now run regardless of success or failure,
+    // ensuring the UI updates with either the OTP screen or an error message.
+    setState(() {
+      if (success) {
+        _otpSent = true;
+        startTimer();
+      }
+      // The _errorMessage is already set inside _sendOtpApi on failure
+    });
+  }
+
+  void _verifyOtp() async {
+    String otp = _otpControllers.map((c) => c.text).join();
+    if (otp.length != 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter the complete 6-digit OTP.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    final phoneNumber = _mobileController.text;
+    final responseData = await _verifyOtpApi(phoneNumber, otp);
+
+    if (responseData != null && mounted) {
+      try {
+        final user = UserModel.fromJson(responseData['user']);
+        final token = responseData['token'];
+
+        final sessionManager =
+            Provider.of<SessionManager>(context, listen: false);
+        await sessionManager.createSession(user, token, phoneNumber);
+
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => const StudentDashboard()),
+          (route) => false,
+        );
+      } catch (e) {
+        if (!mounted) return;
+        setState(() {
+          _errorMessage = "Failed to process login data. Please try again.";
+        });
+      }
+    }
+    // The _errorMessage is set inside _verifyOtpApi on failure
 
     if (mounted) {
       setState(() {
@@ -159,68 +229,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  /// This method now ONLY handles the API call and UI update for sending an OTP.
-  Future<void> _requestAndSendOtp() async {
-    final success = await _sendOtpApi(_mobileController.text);
-    if (!mounted) return;
-    setState(() {
-      if (success) {
-        _otpSent = true;
-        startTimer();
-      } else {
-        _errorMessage = "Failed to send OTP. Please try again.";
-      }
-    });
-  }
-
-  void _verifyOtp() async {
-    String otp = _otpControllers.map((c) => c.text).join();
-    if (otp.length == 6) {
-      setState(() {
-        _isLoading = true;
-        _errorMessage = null;
-      });
-      final phoneNumber = _mobileController.text;
-      final responseData = await _verifyOtpApi(phoneNumber, otp);
-
-      if (responseData != null && mounted) {
-        try {
-          final user = UserModel.fromJson(responseData['user']);
-          final token = responseData['token'];
-
-          final sessionManager =
-              Provider.of<SessionManager>(context, listen: false);
-          // Create the session for the first time, linking it to the phone number
-          await sessionManager.createSession(user, token, phoneNumber);
-
-          Navigator.pushAndRemoveUntil(
-            context,
-            MaterialPageRoute(builder: (context) => const StudentDashboard()),
-            (route) => false,
-          );
-        } catch (e) {
-          if (!mounted) return;
-          setState(() {
-            _isLoading = false;
-            _errorMessage =
-                "An error occurred. Please check the data and try again.";
-          });
-        }
-      } else {
-        if (!mounted) return;
-        setState(() {
-          _isLoading = false;
-          _errorMessage = "Invalid OTP. Please try again.";
-        });
-      }
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter the complete 6-digit OTP.')),
-      );
-    }
-  }
-
-  // --- Dummy Login for Non-Student Roles ---
   void _dummyLogin() {
     if (_mobileController.text.length != 10) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -301,7 +309,6 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // This is the UI you provided for entering the mobile number.
   Column _buildMobileView() {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -331,11 +338,20 @@ class _LoginScreenState extends State<LoginScreen> {
                 borderSide: BorderSide.none),
           ),
         ),
+        // --- FIX: Display error message here ---
+        if (_errorMessage != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 16.0),
+            child: Text(
+              _errorMessage!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.red, fontSize: 14),
+            ),
+          ),
         const SizedBox(height: 32),
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
-            // This button now contains the logic to check for a saved user before sending an OTP.
             onPressed: widget.role == 'Student'
                 ? _handleStudentLoginAttempt
                 : _dummyLogin,
@@ -353,7 +369,6 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // This is the UI for OTP entry with 6 boxes, as requested.
   Column _buildOtpView() {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -371,10 +386,9 @@ class _LoginScreenState extends State<LoginScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: List.generate(6, (index) => _buildOtpBox(index)),
         ),
-        const SizedBox(height: 20),
         if (_errorMessage != null)
           Padding(
-            padding: const EdgeInsets.only(top: 8.0),
+            padding: const EdgeInsets.only(top: 20.0),
             child: Text(
               _errorMessage!,
               textAlign: TextAlign.center,
@@ -387,7 +401,7 @@ class _LoginScreenState extends State<LoginScreen> {
           children: [
             const Text("Didn't receive code? "),
             TextButton(
-              onPressed: _start == 0 ? () => _requestAndSendOtp() : null,
+              onPressed: _start == 0 ? _requestAndSendOtp : null,
               child: Text(_start == 0 ? 'Resend OTP' : 'Resend in $_start s'),
             ),
           ],

@@ -1,18 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:vraz_application/home_screen.dart';
 
-import 'attendance_report_screen.dart';
-import 'grievance_chat_screen.dart';
-import 'grievance_screen.dart';
-import 'notifications_screen.dart';
-import 'parent_teacher_meeting_screen.dart';
-import 'parents_dashboard.dart';
-import 'payments_screen.dart';
-import 'results_screen.dart';
+import 'hr_section_screen.dart';
+import 'manageAttendanceScreen.dart';
+import 'student_performance_screen.dart';
+import 'syllabus_tracking_screen.dart';
+// A placeholder screen for logout
+import 'teacher_dashboard_screen.dart';
+import 'teacher_doubts_screen.dart';
+import 'teacher_notifications_screen.dart';
 import 'timetable_screen.dart';
+import 'upload_assignment_screen.dart';
 
-class ParentAppDrawer extends StatelessWidget {
-  const ParentAppDrawer({super.key});
+class TeacherAppDrawer extends StatelessWidget {
+  const TeacherAppDrawer({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -22,10 +23,10 @@ class ParentAppDrawer extends StatelessWidget {
         children: <Widget>[
           const UserAccountsDrawerHeader(
             accountName: Text(
-              'Manoj Sharma',
+              'Prof. RamSwaroop',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
             ),
-            accountEmail: Text('manoj.sharma@example.com'),
+            accountEmail: Text('Mathematics'),
             currentAccountPicture: CircleAvatar(
               backgroundImage: AssetImage('assets/profile.png'),
             ),
@@ -37,55 +38,55 @@ class ParentAppDrawer extends StatelessWidget {
             context: context,
             icon: Icons.dashboard_outlined,
             text: 'Dashboard',
-            screen: const ParentDashboardScreen(),
+            screen: const TeacherDashboardScreen(),
           ),
           _buildDrawerItem(
             context: context,
-            icon: Icons.report_problem_outlined,
-            text: 'Grievance',
-            screen: const GrievanceScreen(),
+            icon: Icons.check_box_outlined,
+            text: 'Manage Attendance',
+            screen: const ManageAttendanceScreen(),
           ),
           _buildDrawerItem(
             context: context,
-            icon: Icons.support_agent_outlined,
-            text: 'Support Chat',
-            screen: const GrievanceChatScreen(grievanceTitle: 'Support Chat'),
+            icon: Icons.assignment_turned_in_outlined,
+            text: 'Syllabus Tracking',
+            screen: const SyllabusTrackingScreen(),
           ),
           _buildDrawerItem(
             context: context,
-            icon: Icons.group_outlined,
-            text: 'Parents-Teacher Meeting',
-            screen: const ParentTeacherMeetingScreen(),
+            icon: Icons.upload_file_outlined,
+            text: 'Upload Assignment',
+            screen: const UploadAssignmentScreen(),
           ),
           _buildDrawerItem(
             context: context,
-            icon: Icons.calendar_today_outlined,
-            text: 'Attendance Record',
-            screen: const AttendanceReportScreen(),
+            icon: Icons.help_outline,
+            text: 'Doubts',
+            screen: const TeacherDoubtsScreen(),
           ),
           _buildDrawerItem(
             context: context,
-            icon: Icons.payment_outlined,
-            text: 'Payment',
-            screen: const PaymentsScreen(),
-          ),
-          _buildDrawerItem(
-            context: context,
-            icon: Icons.emoji_events_outlined,
-            text: 'Result',
-            screen: const ResultsScreen(),
+            icon: Icons.bar_chart_outlined,
+            text: 'Student Performance',
+            screen: const StudentPerformanceScreen(),
           ),
           _buildDrawerItem(
             context: context,
             icon: Icons.notifications_outlined,
-            text: 'Notification',
-            screen: const NotificationsScreen(),
+            text: 'Notifications',
+            screen: const TeacherNotificationsScreen(),
+          ),
+          _buildDrawerItem(
+            context: context,
+            icon: Icons.business_center_outlined,
+            text: 'HR Section',
+            screen: const HRSectionScreen(),
           ),
           _buildDrawerItem(
             context: context,
             icon: Icons.schedule_outlined,
             text: 'Timetable',
-            screen: const TimetableScreen(),
+            screen: TimetableScreen(), // No 'const' here
           ),
           const Divider(),
           _buildDrawerItem(

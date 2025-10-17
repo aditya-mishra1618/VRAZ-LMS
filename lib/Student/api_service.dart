@@ -1,8 +1,10 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+// FIX: Changed from a relative path to a package-relative path.
+// Replace 'vraz_application' with your actual package name if it's different.
+import 'package:vraz_application/api_config.dart';
 
-import '../api_config.dart';
 import 'course_models.dart';
 
 class ApiService {
