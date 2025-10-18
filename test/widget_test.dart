@@ -1,6 +1,6 @@
 // This file is for testing your application's widgets.
 
-import 'package:flutter_application_1/main.dart';
+import 'package:vraz_application/main.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

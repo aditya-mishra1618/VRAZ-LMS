@@ -221,7 +221,7 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
             borderRadius: BorderRadius.circular(12),
           ),
           child: DropdownButtonFormField<String>(
-            initialValue: _selectedCategory,
+            value: _selectedCategory, // <- use 'value' instead of 'initialValue'
             items: ['Academic', 'Payment', 'Attendance', 'TimeTable']
                 .map((String category) {
               return DropdownMenuItem<String>(
@@ -241,6 +241,7 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
       ],
     );
   }
+
 
   Widget _buildDescriptionField() {
     return Column(
