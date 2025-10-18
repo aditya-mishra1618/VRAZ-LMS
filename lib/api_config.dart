@@ -1,5 +1,4 @@
 class ApiConfig {
-  // Replace with your actual server URL.
-  // For local development, it might be 'http://10.0.2.2:3000' for the Android emulator.
-  static const String baseUrl = 'http://your-backend-api-url.com';
+  // The base URL for the live production backend server.
+  static const String baseUrl = 'https://vraz-backend-api.onrender.com';
 }
