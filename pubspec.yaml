@@ -40,6 +40,7 @@ dependencies:
   # Local Storage
   flutter_secure_storage: ^9.2.2 # Updated
   shared_preferences: ^2.2.3
+  args: ^2.7.0
 
 dev_dependencies:
   flutter_test:
@@ -52,4 +53,4 @@ flutter:
   # Register asset folders
   assets:
     - assets/
-    - assets/audio/ # Added for your voice notes
+#    - assets/audio/ # Added for your voice notes
