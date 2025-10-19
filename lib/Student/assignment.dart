@@ -34,11 +34,13 @@ class AssignmentDetails {
   final String description;
   final List<String> howToSteps;
   final List<Map<String, String>> guideSteps;
+  final List<Map<String, dynamic>>? mcqQuestions;
 
   AssignmentDetails({
     required this.description,
     required this.howToSteps,
     required this.guideSteps,
+    this.mcqQuestions,
   });
 }
 
@@ -57,6 +59,8 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
   final List<File> _uploadedFiles = [];
   final ImagePicker _picker = ImagePicker();
 
+  final Map<int, String> _selectedMcqAnswers = {};
+
   // --- Dummy Data ---
   final List<Assignment> _assignments = [
     Assignment(
@@ -68,6 +72,14 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
         submissionDate: '',
         statusDetail: 'Upcoming'),
     Assignment(
+        subject: 'Physics',
+        title: 'Rotational Motion',
+        professor: 'Prof. Zeeshan Sir',
+        status: 'Pending',
+        dueDate: 'Due: 30 Oct 2024',
+        submissionDate: '',
+        statusDetail: 'Upcoming'),
+    Assignment(
         subject: 'Maths',
         title: 'Calculus',
         professor: 'Prof. Ramswaroop Sir',
@@ -75,6 +87,14 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
         dueDate: 'Due: 15 Oct 2024',
         submissionDate: '',
         statusDetail: 'Overdue'),
+    Assignment(
+        subject: 'Chemistry',
+        title: 'Chemical Bonding',
+        professor: 'Prof. Ankit Sir',
+        status: 'Pending',
+        dueDate: 'Due: 02 Nov 2024',
+        submissionDate: '',
+        statusDetail: 'Upcoming'),
     Assignment(
         subject: 'Chemistry',
         title: 'Organic Reactions',
@@ -111,6 +131,51 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
         },
       ],
     ),
+    'Rotational Motion': AssignmentDetails(
+        description:
+            "This assignment delves into Rotational Motion, a key topic for JEE. It covers concepts like moment of inertia, torque, and angular momentum.",
+        howToSteps: [
+          "Understand the definition of moment of inertia and the parallel/perpendicular axis theorems.",
+          "Apply the concept of torque (τ = Iα) to solve problems.",
+          "Analyze the conservation of angular momentum in various scenarios.",
+          "Answer all the provided MCQs to complete the assignment."
+        ],
+        guideSteps: [
+          {
+            "title": "1. Determine Moment of Inertia",
+            "description":
+                "Identify the axis of rotation and the mass distribution of the object. Use standard formulas or integration if necessary."
+          },
+          {
+            "title": "2. Analyze Forces and Torques",
+            "description":
+                "Draw a free-body diagram and calculate the net torque acting on the system about the axis of rotation."
+          },
+        ],
+        mcqQuestions: [
+          {
+            "question":
+                "A solid sphere of mass M and radius R rolls down an inclined plane without slipping. The acceleration of its center of mass is:",
+            "options": [
+              "(a) g sinθ",
+              "(b) (2/3) g sinθ",
+              "(c) (5/7) g sinθ",
+              "(d) (3/5) g sinθ"
+            ],
+            "answer": "(c) (5/7) g sinθ"
+          },
+          {
+            "question":
+                "A thin circular ring of mass M and radius R is rotating about its axis with a constant angular velocity ω. Two objects each of mass m are attached gently to the opposite ends of a diameter of the ring. The ring now rotates with an angular velocity of:",
+            "options": [
+              "(a) ωM / (M + 2m)",
+              "(b) ω(M - 2m) / (M + 2m)",
+              "(c) ωM / (M + m)",
+              "(d) ω(M + 2m) / M"
+            ],
+            "answer": "(a) ωM / (M + 2m)"
+          },
+        ]),
     'Calculus': AssignmentDetails(
         description:
             "This assignment covers the fundamentals of differential calculus.",
@@ -128,6 +193,40 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
           {
             "title": "2. Master Differentiation",
             "description": "Learn and apply the core rules of differentiation."
+          },
+        ]),
+    'Chemical Bonding': AssignmentDetails(
+        description:
+            "This assignment explores Chemical Bonding and Molecular Structure, a foundational chapter in Chemistry for JEE. You will apply VSEPR theory to predict molecular shapes.",
+        howToSteps: [
+          "Review Lewis structures and the concept of formal charge.",
+          "Master the VSEPR theory to determine electron geometry and molecular geometry.",
+          "Understand the concept of hybridization (sp, sp², sp³).",
+          "Answer all MCQs below to complete the assignment."
+        ],
+        guideSteps: [
+          {
+            "title": "1. Draw the Lewis Structure",
+            "description":
+                "Determine the central atom and arrange valence electrons to satisfy the octet rule for all atoms."
+          },
+          {
+            "title": "2. Apply VSEPR Theory",
+            "description":
+                "Count the number of lone pairs and bonding pairs around the central atom to predict the molecular geometry."
+          },
+        ],
+        mcqQuestions: [
+          {
+            "question":
+                "What is the molecular geometry of the Xenon tetrafluoride (XeF₄) molecule?",
+            "options": [
+              "(a) Tetrahedral",
+              "(b) See-saw",
+              "(c) Square planar",
+              "(d) Octahedral"
+            ],
+            "answer": "(c) Square planar"
           },
         ]),
     'Organic Reactions': AssignmentDetails(
@@ -165,6 +264,7 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     setState(() {
       _selectedAssignment = assignment;
       _uploadedFiles.clear();
+      _selectedMcqAnswers.clear();
     });
   }
 
@@ -174,20 +274,20 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     });
   }
 
-  // --- NEW: LOGIC FOR THE SUBMIT BUTTON ---
   void _submitAssignment() {
-    if (_uploadedFiles.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Please upload a file before submitting.'),
-        backgroundColor: Colors.red,
-      ));
-      return;
-    }
-
     // Simulate submission
     print('Submitting assignment: ${_selectedAssignment!.title}');
-    for (var file in _uploadedFiles) {
-      print('File path: ${file.path}');
+
+    final details = _assignmentDetails[_selectedAssignment!.title]!;
+    final bool hasMcqs =
+        details.mcqQuestions != null && details.mcqQuestions!.isNotEmpty;
+
+    if (hasMcqs) {
+      print('Selected MCQ Answers: $_selectedMcqAnswers');
+    } else {
+      for (var file in _uploadedFiles) {
+        print('File path: ${file.path}');
+      }
     }
 
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -195,7 +295,6 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
       backgroundColor: Colors.green,
     ));
 
-    // Go back to the assignment list
     _goBackToList();
   }
 
@@ -206,12 +305,11 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
         : _buildAssignmentDetailView(_selectedAssignment!);
   }
 
-  // --- SCREEN 1: Assignment List View ---
   Widget _buildAssignmentListView() {
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: Colors.white,
-      drawer: const AppDrawer(), // Using the central drawer
+      drawer: const AppDrawer(),
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.menu_rounded, color: Colors.black54),
@@ -237,7 +335,6 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
   }
 
   Widget _buildAssignmentCard(Assignment assignment) {
-    // ... This widget remains unchanged ...
     final statusColor = assignment.status.contains('Pending')
         ? Colors.orange
         : assignment.status.contains('Submitted')
@@ -325,9 +422,12 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     );
   }
 
-  // --- SCREEN 2: Assignment Detail View ---
   Widget _buildAssignmentDetailView(Assignment assignment) {
     final details = _assignmentDetails[assignment.title]!;
+    // --- FIX: Determine if the assignment has MCQs ---
+    final bool hasMcqs =
+        details.mcqQuestions != null && details.mcqQuestions!.isNotEmpty;
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -343,8 +443,8 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
         centerTitle: true,
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(
-            20, 20, 20, 150), // Add padding for bottom bar
+        // Adjust padding to account for the submission footer
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -368,38 +468,54 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
             const SizedBox(height: 12),
             ...details.guideSteps.map((step) =>
                 _buildGuideCard(step['title']!, step['description']!)),
-            const SizedBox(height: 24),
-            const Text('Your Submission',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            if (_uploadedFiles.isEmpty)
-              const Text('No files uploaded yet.',
-                  style: TextStyle(color: Colors.grey))
-            else
-              ..._uploadedFiles.map((file) {
-                final fileName = file.path.split('/').last;
-                return _buildSubmissionTile(fileName, Icons.image);
-              }),
+            if (hasMcqs) ...[
+              const SizedBox(height: 24),
+              const Text('MCQ Challenge',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: details.mcqQuestions!.length,
+                itemBuilder: (context, index) {
+                  return _buildMcqCard(details.mcqQuestions![index], index);
+                },
+                separatorBuilder: (context, index) =>
+                    const SizedBox(height: 16),
+              ),
+            ],
+            // --- FIX: Conditionally hide the submission section for MCQ assignments ---
+            if (!hasMcqs) ...[
+              const SizedBox(height: 24),
+              const Text('Your Submission',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              if (_uploadedFiles.isEmpty)
+                const Text('No files uploaded yet.',
+                    style: TextStyle(color: Colors.grey))
+              else
+                ..._uploadedFiles.map((file) {
+                  final fileName = file.path.split('/').last;
+                  return _buildSubmissionTile(fileName, Icons.image);
+                }),
+            ],
             const SizedBox(height: 24),
           ],
         ),
       ),
-      bottomNavigationBar: _buildUploadButtons(),
+      // --- FIX: Use the new submission footer ---
+      bottomNavigationBar: _buildSubmissionFooter(details),
     );
   }
 
-  // --- HELPER WIDGETS ---
   Widget _buildStepRow(String number, String text) {
-    // ... This widget remains unchanged ...
     return Padding(
       padding: const EdgeInsets.only(bottom: 8.0),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            '$number. ',
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
+          Text('$number. ',
+              style: const TextStyle(fontWeight: FontWeight.bold)),
           Expanded(
               child: Text(text, style: TextStyle(color: Colors.grey[700]))),
         ],
@@ -408,7 +524,6 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
   }
 
   Widget _buildGuideCard(String title, String description) {
-    // ... This widget remains unchanged ...
     return Card(
       elevation: 0,
       color: Colors.grey[100],
@@ -428,8 +543,47 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     );
   }
 
+  Widget _buildMcqCard(Map<String, dynamic> mcqData, int questionIndex) {
+    return Card(
+      elevation: 0,
+      color: Colors.blue[50],
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.blue[200]!),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Q${questionIndex + 1}: ${mcqData['question']}',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 12),
+            ...(mcqData['options'] as List<String>).map((option) {
+              return RadioListTile<String>(
+                title: Text(option),
+                value: option,
+                groupValue: _selectedMcqAnswers[questionIndex],
+                onChanged: (value) {
+                  setState(() {
+                    if (value != null) {
+                      _selectedMcqAnswers[questionIndex] = value;
+                    }
+                  });
+                },
+                activeColor: Colors.blueAccent,
+                contentPadding: EdgeInsets.zero,
+              );
+            }).toList(),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildSubmissionTile(String fileName, IconData icon) {
-    // ... This widget remains unchanged ...
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(
@@ -442,7 +596,6 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
         trailing: IconButton(
           icon: const Icon(Icons.close),
           onPressed: () {
-            // Logic to remove the file
             setState(() {
               _uploadedFiles
                   .removeWhere((file) => file.path.endsWith(fileName));
@@ -453,28 +606,39 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     );
   }
 
-  // --- UPDATED WIDGET WITH THE SUBMIT BUTTON ---
-  Widget _buildUploadButtons() {
+  // --- FIX: Renamed and updated the submission footer logic ---
+  Widget _buildSubmissionFooter(AssignmentDetails details) {
+    final bool hasMcqs =
+        details.mcqQuestions != null && details.mcqQuestions!.isNotEmpty;
+    final int totalMcqs = details.mcqQuestions?.length ?? 0;
+    final bool allMcqsAnswered = _selectedMcqAnswers.length == totalMcqs;
+
+    // Determine if the submit button should be enabled
+    bool isSubmitEnabled;
+    if (hasMcqs) {
+      // For MCQ assignments, only check if all questions are answered
+      isSubmitEnabled = allMcqsAnswered;
+    } else {
+      // For file-upload assignments, only check if files are uploaded
+      isSubmitEnabled = _uploadedFiles.isNotEmpty;
+    }
+
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
       decoration: BoxDecoration(
         color: Colors.white,
-        border: Border(
-          top: BorderSide(color: Colors.grey[200]!, width: 1.0),
-        ),
+        border: Border(top: BorderSide(color: Colors.grey[200]!, width: 1.0)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 1. The main "Submit" button
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
               icon: const Icon(Icons.upload_file, color: Colors.white),
               label: const Text('Submit Assignment',
                   style: TextStyle(color: Colors.white, fontSize: 16)),
-              // Disable button if no files are uploaded
-              onPressed: _uploadedFiles.isEmpty ? null : _submitAssignment,
+              onPressed: isSubmitEnabled ? _submitAssignment : null,
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blueAccent,
                 padding: const EdgeInsets.symmetric(vertical: 14),
@@ -484,35 +648,37 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 12),
-          // 2. The secondary helper buttons
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.camera_alt_outlined),
-                  label: const Text('Camera'),
-                  onPressed: () => _pickImage(ImageSource.camera),
-                  style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12))),
+          // --- FIX: Conditionally hide upload buttons for MCQ assignments ---
+          if (!hasMcqs) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.camera_alt_outlined),
+                    label: const Text('Camera'),
+                    onPressed: () => _pickImage(ImageSource.camera),
+                    style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12))),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.photo_library_outlined),
-                  label: const Text('Gallery'),
-                  onPressed: () => _pickImage(ImageSource.gallery),
-                  style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12))),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.photo_library_outlined),
+                    label: const Text('Gallery'),
+                    onPressed: () => _pickImage(ImageSource.gallery),
+                    style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12))),
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
+          ]
         ],
       ),
     );
