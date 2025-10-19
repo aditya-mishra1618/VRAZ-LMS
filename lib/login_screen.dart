@@ -203,7 +203,7 @@ class _LoginScreenState extends State<LoginScreen> {
       try {
         final user = UserModel.fromJson(responseData['user']);
         final token = responseData['token'];
-
+        print('✅ Bearer Token after login: $token');
         final sessionManager =
             Provider.of<SessionManager>(context, listen: false);
         await sessionManager.createSession(user, token, phoneNumber);

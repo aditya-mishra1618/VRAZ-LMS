@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../session_manager.dart';
+import 'api_service.dart';
+import 'app_drawer.dart';
 
-import 'app_drawer.dart'; // Import the shared drawer
 
-// Temporary data model for a single schedule item.
+// UI Model for timetable entry
 class TimetableEntry {
   final String startTime;
   final String endTime;
@@ -30,80 +33,78 @@ class _TimetableScreenState extends State<TimetableScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late DateTime _currentDate;
 
-  // --- Dummy Data ---
-  // In a real app, this would come from a backend.
-  final Map<int, List<TimetableEntry>> _schedule = {
-    5: [
-      // Friday
-      TimetableEntry(
-          startTime: '09:00 AM',
-          endTime: '10:00 AM',
-          subject: 'Physics',
-          professor: 'Prof. Sharma'),
-      TimetableEntry(
-          startTime: '10:00 AM',
-          endTime: '11:00 AM',
-          subject: 'Doubt Lecture',
-          professor: 'Chemistry'),
-      TimetableEntry(
-          startTime: '11:00 AM',
-          endTime: '12:00 PM',
-          subject: 'Biology',
-          professor: 'Prof. Singh'),
-      TimetableEntry(startTime: '12:00 PM', isBreak: true),
-      TimetableEntry(
-          startTime: '01:00 PM',
-          endTime: '02:00 PM',
-          subject: 'Physics',
-          professor: 'Prof. Sharma'),
-      TimetableEntry(
-          startTime: '02:00 PM',
-          endTime: '03:00 PM',
-          subject: 'Chemistry',
-          professor: 'Prof. Gupta'),
-    ],
-    4: [
-      // Thursday
-      TimetableEntry(
-          startTime: '09:00 AM',
-          endTime: '10:00 AM',
-          subject: 'Maths',
-          professor: 'Prof. Ramswaroop Sir'),
-      TimetableEntry(
-          startTime: '10:00 AM',
-          endTime: '11:00 AM',
-          subject: 'Chemistry',
-          professor: 'Prof. Ankit Sir'),
-      TimetableEntry(
-          startTime: '11:00 AM',
-          endTime: '12:00 PM',
-          subject: 'Physics',
-          professor: 'Prof. Zeeshan Sir'),
-      TimetableEntry(startTime: '12:00 PM', isBreak: true),
-    ],
-  };
-  // --- End Dummy Data ---
+  Map<int, List<TimetableEntry>> _schedule = {};
 
   @override
   void initState() {
     super.initState();
     _currentDate = DateTime.now();
-    // If it's a weekend, default to Friday to show some data
     if (_currentDate.weekday > 5) {
       _currentDate =
           _currentDate.subtract(Duration(days: _currentDate.weekday - 5));
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final sessionManager =
+      Provider.of<SessionManager>(context, listen: false);
+      final token = sessionManager.authToken;
+      print('🎟️ Bearer Token on TimetableScreen: $token');
+
+      await _fetchTimetable(token!);
+    });
+  }
+
+  Future<void> _fetchTimetable(String authToken) async {
+    try {
+      final apiService = ApiService();
+      final timetableList = await apiService.fetchTimetable(
+        authToken,
+        "2025-10-13",
+        "2025-11-19",
+      );
+
+      print('📊 Total entries from API: ${timetableList.length}');
+
+      final Map<int, List<TimetableEntry>> scheduleMap = {};
+
+      for (var item in timetableList) {
+        final weekday = item.startTime.weekday;
+        if (!scheduleMap.containsKey(weekday)) {
+          scheduleMap[weekday] = [];
+        }
+
+        scheduleMap[weekday]!.add(
+          TimetableEntry(
+            startTime:
+            "${item.startTime.hour.toString().padLeft(2, '0')}:${item.startTime.minute.toString().padLeft(2, '0')}",
+            endTime:
+            "${item.endTime.hour.toString().padLeft(2, '0')}:${item.endTime.minute.toString().padLeft(2, '0')}",
+            subject: item.subjectName,
+            professor: item.teacherName,
+            isBreak: false,
+          ),
+        );
+      }
+
+      for (var day in scheduleMap.keys) {
+        scheduleMap[day]!.sort((a, b) => a.startTime.compareTo(b.startTime));
+      }
+
+      setState(() {
+        _schedule = scheduleMap;
+      });
+      print('✅ Timetable map ready for UI.');
+    } catch (e) {
+      print('⚠️ Error fetching timetable: $e');
     }
   }
 
   void _changeDate(int days) {
     setState(() {
       _currentDate = _currentDate.add(Duration(days: days));
-      // Skip weekends
       if (_currentDate.weekday == 6) {
-        // Saturday
         _currentDate = _currentDate.add(const Duration(days: 2));
       } else if (_currentDate.weekday == 7) {
-        // Sunday
         _currentDate = _currentDate.add(const Duration(days: 1));
       }
     });
@@ -111,7 +112,6 @@ class _TimetableScreenState extends State<TimetableScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Determine the day name (e.g., "Friday")
     const weekDays = [
       "Monday",
       "Tuesday",
@@ -123,7 +123,6 @@ class _TimetableScreenState extends State<TimetableScreen> {
     ];
     final dayName = weekDays[_currentDate.weekday - 1];
 
-    // Get the schedule for the current day, or an empty list if none
     final dailySchedule = _schedule[_currentDate.weekday] ?? [];
 
     return Scaffold(
@@ -137,7 +136,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
         ),
         title: const Text('Timetable',
             style:
-                TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+            TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
         backgroundColor: const Color(0xFFF0F4F8),
         elevation: 0,
         centerTitle: true,
@@ -155,12 +154,12 @@ class _TimetableScreenState extends State<TimetableScreen> {
             child: dailySchedule.isEmpty
                 ? const Center(child: Text("No classes scheduled for today."))
                 : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    itemCount: dailySchedule.length,
-                    itemBuilder: (context, index) {
-                      return _buildTimelineEntry(dailySchedule[index]);
-                    },
-                  ),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: dailySchedule.length,
+              itemBuilder: (context, index) {
+                return _buildTimelineEntry(dailySchedule[index]);
+              },
+            ),
           ),
         ],
       ),
@@ -221,7 +220,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
         children: [
           Text("Lunch Break",
               style:
-                  TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+              TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
           SizedBox(height: 4),
           Divider(indent: 20, endIndent: 20),
         ],

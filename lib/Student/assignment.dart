@@ -4,13 +4,19 @@ import 'dart:io';
 // 2. EXTERNAL PACKAGES
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:provider/provider.dart';
+import 'package:vraz_application/Student/service/assignment_api.dart';
 
 // 3. PROJECT FILES
 // This should be the path to your central navigation drawer.
+import '../session_manager.dart';
 import 'app_drawer.dart';
+import 'models/assignment_model.dart';
+// Import your SessionManager
 
 // 4. DATA MODELS
 class Assignment {
+  final int id;
   final String subject;
   final String title;
   final String professor;
@@ -18,8 +24,13 @@ class Assignment {
   final String dueDate;
   final String submissionDate;
   final String statusDetail;
+  final String type; // "MCQ" or "Theory"
+  final int maxMarks;
+  final String description;
+  final List<Submission> submissions;
 
   Assignment({
+    required this.id,
     required this.subject,
     required this.title,
     required this.professor,
@@ -27,6 +38,10 @@ class Assignment {
     required this.dueDate,
     required this.submissionDate,
     required this.statusDetail,
+    required this.type,
+    required this.maxMarks,
+    required this.description,
+    required this.submissions,
   });
 }
 
@@ -61,54 +76,224 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
 
   final Map<int, String> _selectedMcqAnswers = {};
 
-  // --- Dummy Data ---
-  final List<Assignment> _assignments = [
-    Assignment(
-        subject: 'Physics',
-        title: 'Kinematics',
-        professor: 'Prof. Zeeshan Sir',
-        status: 'Pending',
-        dueDate: 'Due: 25 Oct 2024',
-        submissionDate: '',
-        statusDetail: 'Upcoming'),
-    Assignment(
-        subject: 'Physics',
-        title: 'Rotational Motion',
-        professor: 'Prof. Zeeshan Sir',
-        status: 'Pending',
-        dueDate: 'Due: 30 Oct 2024',
-        submissionDate: '',
-        statusDetail: 'Upcoming'),
-    Assignment(
-        subject: 'Maths',
-        title: 'Calculus',
-        professor: 'Prof. Ramswaroop Sir',
-        status: 'Submitted',
-        dueDate: 'Due: 15 Oct 2024',
-        submissionDate: '',
-        statusDetail: 'Overdue'),
-    Assignment(
-        subject: 'Chemistry',
-        title: 'Chemical Bonding',
-        professor: 'Prof. Ankit Sir',
-        status: 'Pending',
-        dueDate: 'Due: 02 Nov 2024',
-        submissionDate: '',
-        statusDetail: 'Upcoming'),
-    Assignment(
-        subject: 'Chemistry',
-        title: 'Organic Reactions',
-        professor: 'Prof. Ankit Sir',
-        status: 'Graded: A+',
-        dueDate: '',
-        submissionDate: 'Submitted: 10 Oct 2024',
-        statusDetail: ''),
-  ];
+  // API Service instance
+  late AssignmentApiService _apiService;
 
+  // List to store assignments from API
+  List<Assignment> _assignments = [];
+
+  // Loading and error states
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    print('🎬 DEBUG: AssignmentsScreen initialized');
+    print('📅 DEBUG: Current Date/Time: ${DateTime.now().toUtc().toIso8601String()}');
+
+    // Initialize API service without token (will be set from SessionManager)
+    _apiService = AssignmentApiService();
+
+    // Fetch assignments after the widget is built
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initializeAndFetchAssignments();
+    });
+  }
+
+  /// Initialize API service with token from SessionManager and fetch assignments
+  Future<void> _initializeAndFetchAssignments() async {
+    print('🔧 DEBUG: Initializing API service with SessionManager');
+
+    // Get SessionManager from Provider
+    final sessionManager = Provider.of<SessionManager>(context, listen: false);
+
+    // Check if user is logged in
+    if (!sessionManager.isLoggedIn) {
+      print('❌ DEBUG: User is not logged in');
+      setState(() {
+        _errorMessage = 'Please login to view assignments';
+        _isLoading = false;
+      });
+      return;
+    }
+
+    // Get the auth token from SessionManager
+    final authToken = sessionManager.authToken;
+
+    if (authToken == null || authToken.isEmpty) {
+      print('❌ DEBUG: Auth token is null or empty');
+      setState(() {
+        _errorMessage = 'Authentication token not found. Please login again.';
+        _isLoading = false;
+      });
+      return;
+    }
+
+    print('✅ DEBUG: Auth token retrieved from SessionManager');
+    print('🔐 DEBUG: Token preview: ${authToken.substring(0, 20)}...');
+
+
+    // Update API service with the token
+    _apiService.updateBearerToken(authToken);
+
+    // Fetch assignments
+    await _fetchAssignments();
+  }
+
+  /// Fetches assignments from the API
+  Future<void> _fetchAssignments() async {
+    print('🔄 DEBUG: Starting to fetch assignments from API');
+    print('⏰ DEBUG: Fetch started at: ${DateTime.now().toUtc().toIso8601String()}');
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      // Call API service to fetch assignments
+      final List<AssignmentResponse> apiAssignments =
+      await _apiService.fetchMyAssignments();
+
+      print('✅ DEBUG: Successfully received ${apiAssignments.length} assignments from API');
+      print('⏰ DEBUG: Fetch completed at: ${DateTime.now().toUtc().toIso8601String()}');
+
+      // Convert API response to UI Assignment model
+      final List<Assignment> convertedAssignments = apiAssignments.map((apiAssignment) {
+        print('🔄 DEBUG: Converting assignment ID ${apiAssignment.id}: ${apiAssignment.assignmentTemplate.title}');
+
+        // Determine subject from title (you can modify this logic)
+        String subject = 'General';
+        final titleLower = apiAssignment.assignmentTemplate.title.toLowerCase();
+
+        if (titleLower.contains('math') || titleLower.contains('mcq')) {
+          subject = 'Maths';
+        } else if (titleLower.contains('physic')) {
+          subject = 'Physics';
+        } else if (titleLower.contains('chem')) {
+          subject = 'Chemistry';
+        } else if (titleLower.contains('theory')) {
+          subject = 'Science';
+        }
+
+        print('📚 DEBUG: Subject identified as: $subject');
+
+        // Determine status based on submissions
+        String status = 'Pending';
+        String submissionDate = '';
+        String statusDetail = 'Upcoming';
+
+        if (apiAssignment.submissions.isNotEmpty) {
+          final latestSubmission = apiAssignment.submissions.first;
+          print('📝 DEBUG: Latest submission status: ${latestSubmission.status}');
+          print('📝 DEBUG: Marks: ${latestSubmission.marks}');
+
+          if (latestSubmission.status == 'GRADED') {
+            final marksText = latestSubmission.marks != null
+                ? '${latestSubmission.marks}/${apiAssignment.maxMarks}'
+                : 'Pending';
+            status = 'Graded: $marksText';
+            submissionDate = 'Submitted: ${_formatDate(latestSubmission.submittedAt)}';
+            statusDetail = '';
+          } else {
+            status = 'Submitted';
+            submissionDate = 'Submitted: ${_formatDate(latestSubmission.submittedAt)}';
+
+            // Check if overdue
+            final dueDateTime = DateTime.parse(apiAssignment.dueDate);
+            final submittedDateTime = DateTime.parse(latestSubmission.submittedAt);
+            statusDetail = submittedDateTime.isAfter(dueDateTime) ? 'Overdue' : 'On Time';
+          }
+        } else {
+          // Check if upcoming or overdue
+          final dueDateTime = DateTime.parse(apiAssignment.dueDate);
+          final now = DateTime.now();
+          statusDetail = now.isAfter(dueDateTime) ? 'Overdue' : 'Upcoming';
+        }
+
+        print('✅ DEBUG: Status determined - Status: $status, Detail: $statusDetail');
+
+        // Format due date
+        String dueDate = 'Due: ${_formatDate(apiAssignment.dueDate)}';
+
+        return Assignment(
+          id: apiAssignment.id,
+          subject: subject,
+          title: apiAssignment.assignmentTemplate.title,
+          professor: 'Prof. Teacher', // API doesn't provide professor name
+          status: status,
+          dueDate: dueDate,
+          submissionDate: submissionDate,
+          statusDetail: statusDetail,
+          type: apiAssignment.assignmentTemplate.type,
+          maxMarks: apiAssignment.maxMarks,
+          description: apiAssignment.assignmentTemplate.description,
+          submissions: apiAssignment.submissions,
+        );
+      }).toList();
+
+      print('✅ DEBUG: Successfully converted ${convertedAssignments.length} assignments');
+
+      setState(() {
+        _assignments = convertedAssignments;
+        _isLoading = false;
+      });
+
+      print('✅ DEBUG: UI updated with assignments');
+
+    } catch (e) {
+      print('❌ DEBUG: Error fetching assignments: $e');
+      print('❌ DEBUG: Error occurred at: ${DateTime.now().toUtc().toIso8601String()}');
+
+      setState(() {
+        _errorMessage = e.toString().replaceAll('Exception: ', '');
+        _isLoading = false;
+      });
+
+      // Show error snackbar
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString().replaceAll('Exception: ', '')}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'Retry',
+              textColor: Colors.white,
+              onPressed: _fetchAssignments,
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  /// Helper method to format date strings
+  String _formatDate(String dateString) {
+    try {
+      final DateTime date = DateTime.parse(dateString);
+      return '${date.day} ${_getMonthName(date.month)} ${date.year}';
+    } catch (e) {
+      print('⚠️ DEBUG: Error formatting date: $e');
+      return dateString;
+    }
+  }
+
+  /// Helper method to get month name
+  String _getMonthName(int month) {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    return months[month - 1];
+  }
+
+  // --- Dummy assignment details (kept as fallback) ---
   final Map<String, AssignmentDetails> _assignmentDetails = {
     'Kinematics': AssignmentDetails(
       description:
-          "This assignment focuses on Kinematics, the study of motion. You'll apply concepts like displacement, velocity, acceleration, and time to solve problems involving objects in motion.",
+      "This assignment focuses on Kinematics, the study of motion. You'll apply concepts like displacement, velocity, acceleration, and time to solve problems involving objects in motion.",
       howToSteps: [
         "Review the fundamental concepts of Kinematics.",
         "Familiarize yourself with the kinematic equations for motion.",
@@ -127,140 +312,29 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
         {
           "title": "3. Solve and Verify",
           "description":
-              "Check if your answer is reasonable and has the correct units."
+          "Check if your answer is reasonable and has the correct units."
         },
       ],
     ),
-    'Rotational Motion': AssignmentDetails(
-        description:
-            "This assignment delves into Rotational Motion, a key topic for JEE. It covers concepts like moment of inertia, torque, and angular momentum.",
-        howToSteps: [
-          "Understand the definition of moment of inertia and the parallel/perpendicular axis theorems.",
-          "Apply the concept of torque (τ = Iα) to solve problems.",
-          "Analyze the conservation of angular momentum in various scenarios.",
-          "Answer all the provided MCQs to complete the assignment."
-        ],
-        guideSteps: [
-          {
-            "title": "1. Determine Moment of Inertia",
-            "description":
-                "Identify the axis of rotation and the mass distribution of the object. Use standard formulas or integration if necessary."
-          },
-          {
-            "title": "2. Analyze Forces and Torques",
-            "description":
-                "Draw a free-body diagram and calculate the net torque acting on the system about the axis of rotation."
-          },
-        ],
-        mcqQuestions: [
-          {
-            "question":
-                "A solid sphere of mass M and radius R rolls down an inclined plane without slipping. The acceleration of its center of mass is:",
-            "options": [
-              "(a) g sinθ",
-              "(b) (2/3) g sinθ",
-              "(c) (5/7) g sinθ",
-              "(d) (3/5) g sinθ"
-            ],
-            "answer": "(c) (5/7) g sinθ"
-          },
-          {
-            "question":
-                "A thin circular ring of mass M and radius R is rotating about its axis with a constant angular velocity ω. Two objects each of mass m are attached gently to the opposite ends of a diameter of the ring. The ring now rotates with an angular velocity of:",
-            "options": [
-              "(a) ωM / (M + 2m)",
-              "(b) ω(M - 2m) / (M + 2m)",
-              "(c) ωM / (M + m)",
-              "(d) ω(M + 2m) / M"
-            ],
-            "answer": "(a) ωM / (M + 2m)"
-          },
-        ]),
-    'Calculus': AssignmentDetails(
-        description:
-            "This assignment covers the fundamentals of differential calculus.",
-        howToSteps: [
-          "Review the definition of a limit.",
-          "Practice finding derivatives using various rules.",
-          "Apply derivatives to find the slope of a tangent line.",
-          "Submit your work showing all intermediate steps."
-        ],
-        guideSteps: [
-          {
-            "title": "1. Understand Limits",
-            "description": "Grasp the concept of approaching a value."
-          },
-          {
-            "title": "2. Master Differentiation",
-            "description": "Learn and apply the core rules of differentiation."
-          },
-        ]),
-    'Chemical Bonding': AssignmentDetails(
-        description:
-            "This assignment explores Chemical Bonding and Molecular Structure, a foundational chapter in Chemistry for JEE. You will apply VSEPR theory to predict molecular shapes.",
-        howToSteps: [
-          "Review Lewis structures and the concept of formal charge.",
-          "Master the VSEPR theory to determine electron geometry and molecular geometry.",
-          "Understand the concept of hybridization (sp, sp², sp³).",
-          "Answer all MCQs below to complete the assignment."
-        ],
-        guideSteps: [
-          {
-            "title": "1. Draw the Lewis Structure",
-            "description":
-                "Determine the central atom and arrange valence electrons to satisfy the octet rule for all atoms."
-          },
-          {
-            "title": "2. Apply VSEPR Theory",
-            "description":
-                "Count the number of lone pairs and bonding pairs around the central atom to predict the molecular geometry."
-          },
-        ],
-        mcqQuestions: [
-          {
-            "question":
-                "What is the molecular geometry of the Xenon tetrafluoride (XeF₄) molecule?",
-            "options": [
-              "(a) Tetrahedral",
-              "(b) See-saw",
-              "(c) Square planar",
-              "(d) Octahedral"
-            ],
-            "answer": "(c) Square planar"
-          },
-        ]),
-    'Organic Reactions': AssignmentDetails(
-        description: "Explore fundamental organic reactions.",
-        howToSteps: [
-          "Understand the mechanisms for SN1, SN2, E1, and E2 reactions.",
-          "Predict the products of common addition reactions.",
-          "Draw curved-arrow mechanisms for each reaction type.",
-          "Submit your completed reaction schemes."
-        ],
-        guideSteps: [
-          {
-            "title": "1. Learn the Players",
-            "description":
-                "Identify the nucleophile, electrophile, and leaving group."
-          },
-          {
-            "title": "2. Follow the Electrons",
-            "description":
-                "Use curved arrows to show the movement of electron pairs."
-          },
-        ]),
   };
 
   Future<void> _pickImage(ImageSource source) async {
+    print('📸 DEBUG: Picking image from ${source == ImageSource.camera ? "Camera" : "Gallery"}');
+
     final XFile? pickedFile = await _picker.pickImage(source: source);
     if (pickedFile != null) {
+      print('✅ DEBUG: Image picked successfully: ${pickedFile.path}');
       setState(() {
         _uploadedFiles.add(File(pickedFile.path));
       });
+      print('📁 DEBUG: Total uploaded files: ${_uploadedFiles.length}');
+    } else {
+      print('⚠️ DEBUG: No image selected');
     }
   }
 
   void _selectAssignment(Assignment assignment) {
+    print('🎯 DEBUG: Assignment selected: ${assignment.title} (ID: ${assignment.id})');
     setState(() {
       _selectedAssignment = assignment;
       _uploadedFiles.clear();
@@ -269,26 +343,42 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
   }
 
   void _goBackToList() {
+    print('⬅️ DEBUG: Going back to assignment list');
     setState(() {
       _selectedAssignment = null;
     });
   }
 
   void _submitAssignment() {
-    // Simulate submission
-    print('Submitting assignment: ${_selectedAssignment!.title}');
+    print('📤 DEBUG: ========== ASSIGNMENT SUBMISSION ==========');
+    print('📤 DEBUG: Assignment Title: ${_selectedAssignment!.title}');
+    print('📤 DEBUG: Assignment ID: ${_selectedAssignment!.id}');
+    print('📤 DEBUG: Assignment Type: ${_selectedAssignment!.type}');
+    print('📤 DEBUG: Submission Time: ${DateTime.now().toUtc().toIso8601String()}');
 
-    final details = _assignmentDetails[_selectedAssignment!.title]!;
-    final bool hasMcqs =
-        details.mcqQuestions != null && details.mcqQuestions!.isNotEmpty;
+    final bool hasMcqs = _selectedAssignment!.type == 'MCQ';
 
     if (hasMcqs) {
-      print('Selected MCQ Answers: $_selectedMcqAnswers');
+      print('📝 DEBUG: MCQ Assignment Submission');
+      print('📝 DEBUG: Total Questions: ${_selectedMcqAnswers.length}');
+      print('📝 DEBUG: Selected Answers: $_selectedMcqAnswers');
+
+      _selectedMcqAnswers.forEach((questionIndex, answer) {
+        print('📝 DEBUG:   Q${questionIndex + 1}: $answer');
+      });
     } else {
-      for (var file in _uploadedFiles) {
-        print('File path: ${file.path}');
+      print('📁 DEBUG: Theory Assignment Submission');
+      print('📁 DEBUG: Total Files: ${_uploadedFiles.length}');
+
+      for (var i = 0; i < _uploadedFiles.length; i++) {
+        print('📁 DEBUG:   File ${i + 1}: ${_uploadedFiles[i].path}');
+        print('📁 DEBUG:   File Size: ${_uploadedFiles[i].lengthSync()} bytes');
       }
     }
+
+    // TODO: Implement actual API submission here
+    print('⚠️ DEBUG: API submission endpoint not yet implemented');
+    print('📤 DEBUG: ========================================');
 
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
       content: Text('Assignment submitted successfully!'),
@@ -322,8 +412,77 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.black54),
+            onPressed: () {
+              print('🔄 DEBUG: Refresh button pressed by user');
+              _fetchAssignments();
+            },
+          ),
+        ],
       ),
-      body: ListView.builder(
+      body: _isLoading
+          ? const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Loading assignments...'),
+          ],
+        ),
+      )
+          : _errorMessage != null
+          ? Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, size: 64, color: Colors.red),
+            const SizedBox(height: 16),
+            const Text(
+              'Error loading assignments',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Text(
+                _errorMessage!,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _fetchAssignments,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      )
+          : _assignments.isEmpty
+          ? Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.assignment_outlined, size: 64, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(
+              'No assignments found',
+              style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _fetchAssignments,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Refresh'),
+            ),
+          ],
+        ),
+      )
+          : ListView.builder(
         padding: const EdgeInsets.all(16),
         itemCount: _assignments.length,
         itemBuilder: (context, index) {
@@ -338,8 +497,8 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     final statusColor = assignment.status.contains('Pending')
         ? Colors.orange
         : assignment.status.contains('Submitted')
-            ? Colors.blue
-            : Colors.green;
+        ? Colors.blue
+        : Colors.green;
     return Card(
       elevation: 0,
       margin: const EdgeInsets.only(bottom: 16),
@@ -362,8 +521,8 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
                     assignment.subject == 'Physics'
                         ? Icons.rocket_launch_outlined
                         : assignment.subject == 'Maths'
-                            ? Icons.calculate_outlined
-                            : Icons.science_outlined,
+                        ? Icons.calculate_outlined
+                        : Icons.science_outlined,
                     color: Colors.grey[600],
                     size: 32,
                   ),
@@ -423,10 +582,30 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
   }
 
   Widget _buildAssignmentDetailView(Assignment assignment) {
-    final details = _assignmentDetails[assignment.title]!;
-    // --- FIX: Determine if the assignment has MCQs ---
-    final bool hasMcqs =
-        details.mcqQuestions != null && details.mcqQuestions!.isNotEmpty;
+    print('🔍 DEBUG: Displaying assignment details for: ${assignment.title} (ID: ${assignment.id})');
+
+    // Use API description or fallback to dummy data
+    final details = _assignmentDetails[assignment.title] ?? AssignmentDetails(
+      description: assignment.description,
+      howToSteps: [
+        "Read the assignment description carefully.",
+        "Complete the assignment according to the instructions.",
+        "Submit your work before the due date.",
+      ],
+      guideSteps: [
+        {
+          "title": "1. Understand the Task",
+          "description": "Make sure you understand what is required."
+        },
+        {
+          "title": "2. Complete the Work",
+          "description": "Work through the assignment systematically."
+        },
+      ],
+    );
+
+    final bool hasMcqs = assignment.type == 'MCQ';
+    print('📝 DEBUG: Assignment type: ${assignment.type}, Has MCQs: $hasMcqs');
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -437,20 +616,19 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
         ),
         title: const Text('Assignment Details',
             style:
-                TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+            TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
         backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
       ),
       body: SingleChildScrollView(
-        // Adjust padding to account for the submission footer
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('${assignment.subject}: ${assignment.title}',
                 style:
-                    const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             Text(details.description,
                 style: TextStyle(color: Colors.grey[700], height: 1.5)),
@@ -460,7 +638,7 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
             const SizedBox(height: 12),
             ...List.generate(
                 details.howToSteps.length,
-                (index) => _buildStepRow(
+                    (index) => _buildStepRow(
                     (index + 1).toString(), details.howToSteps[index])),
             const SizedBox(height: 24),
             const Text('Step-by-step Guide',
@@ -468,7 +646,7 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
             const SizedBox(height: 12),
             ...details.guideSteps.map((step) =>
                 _buildGuideCard(step['title']!, step['description']!)),
-            if (hasMcqs) ...[
+            if (hasMcqs && details.mcqQuestions != null) ...[
               const SizedBox(height: 24),
               const Text('MCQ Challenge',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
@@ -481,10 +659,9 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
                   return _buildMcqCard(details.mcqQuestions![index], index);
                 },
                 separatorBuilder: (context, index) =>
-                    const SizedBox(height: 16),
+                const SizedBox(height: 16),
               ),
             ],
-            // --- FIX: Conditionally hide the submission section for MCQ assignments ---
             if (!hasMcqs) ...[
               const SizedBox(height: 24),
               const Text('Your Submission',
@@ -503,7 +680,6 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
           ],
         ),
       ),
-      // --- FIX: Use the new submission footer ---
       bottomNavigationBar: _buildSubmissionFooter(details),
     );
   }
@@ -567,6 +743,7 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
                 value: option,
                 groupValue: _selectedMcqAnswers[questionIndex],
                 onChanged: (value) {
+                  print('✅ DEBUG: MCQ Answer selected - Q${questionIndex + 1}: $value');
                   setState(() {
                     if (value != null) {
                       _selectedMcqAnswers[questionIndex] = value;
@@ -596,31 +773,30 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
         trailing: IconButton(
           icon: const Icon(Icons.close),
           onPressed: () {
+            print('🗑️ DEBUG: Removing file: $fileName');
             setState(() {
               _uploadedFiles
                   .removeWhere((file) => file.path.endsWith(fileName));
             });
+            print('📁 DEBUG: Remaining files: ${_uploadedFiles.length}');
           },
         ),
       ),
     );
   }
 
-  // --- FIX: Renamed and updated the submission footer logic ---
   Widget _buildSubmissionFooter(AssignmentDetails details) {
-    final bool hasMcqs =
-        details.mcqQuestions != null && details.mcqQuestions!.isNotEmpty;
+    final bool hasMcqs = _selectedAssignment!.type == 'MCQ';
     final int totalMcqs = details.mcqQuestions?.length ?? 0;
     final bool allMcqsAnswered = _selectedMcqAnswers.length == totalMcqs;
 
-    // Determine if the submit button should be enabled
     bool isSubmitEnabled;
     if (hasMcqs) {
-      // For MCQ assignments, only check if all questions are answered
       isSubmitEnabled = allMcqsAnswered;
+      print('🎯 DEBUG: MCQ Progress - Answered: ${_selectedMcqAnswers.length}/$totalMcqs');
     } else {
-      // For file-upload assignments, only check if files are uploaded
       isSubmitEnabled = _uploadedFiles.isNotEmpty;
+      print('📁 DEBUG: Files uploaded: ${_uploadedFiles.length}');
     }
 
     return Container(
@@ -648,7 +824,6 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
               ),
             ),
           ),
-          // --- FIX: Conditionally hide upload buttons for MCQ assignments ---
           if (!hasMcqs) ...[
             const SizedBox(height: 12),
             Row(
