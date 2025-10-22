@@ -5,7 +5,7 @@ import 'package:vraz_application/Parents/parents_dashboard.dart';
 import 'package:vraz_application/Student/Student_dashboard_screen.dart';
 import 'package:vraz_application/Teacher/Teacher_Dashboard_Screen.dart';
 import 'package:vraz_application/home_screen.dart';
-import 'package:vraz_application/session_manager.dart';
+import 'package:vraz_application/student_session_manager.dart';
 
 class AuthCheckScreen extends StatelessWidget {
   const AuthCheckScreen({super.key});

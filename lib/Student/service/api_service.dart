@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:vraz_application/api_config.dart';
-import 'course_models.dart';
-import 'models/timetable_model.dart';
+import '../models/course_models.dart';
+import '../models/timetable_model.dart';
 
 
 class ApiService {
