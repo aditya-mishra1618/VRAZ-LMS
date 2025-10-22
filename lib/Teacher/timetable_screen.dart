@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:vraz_application/Teacher/services/timetable_api_service.dart';
+import '../teacher_session_manager.dart';
+import 'teacher_app_drawer.dart';
 
-import 'teacher_app_drawer.dart'; // Import your central drawer
 
-// A simple data model for a timetable entry to keep the code clean.
+// Local UI model
 class TimetableEntry {
   final String time;
   final String title;
   final String? center;
   final String duration;
-  final String type; // 'class', 'break', or 'doubt'
+  final String type; // 'class', 'break', 'doubt'
 
   TimetableEntry({
     required this.time,
@@ -30,48 +32,15 @@ class _TimetableScreenState extends State<TimetableScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
-  // Dummy data for the timetable entries shown in the screenshot.
-  final List<TimetableEntry> _dailySchedule = [
-    TimetableEntry(
-      time: '9:00 AM',
-      title: 'Calculus for JEE',
-      center: 'Thane Station',
-      duration: '1:30 hr',
-      type: 'class',
-    ),
-    TimetableEntry(
-      time: '10:30 AM',
-      title: 'Algebra & Vectors JEE',
-      center: 'Manpada',
-      duration: '1:30 hr',
-      type: 'class',
-    ),
-    TimetableEntry(
-      time: '12:00 PM',
-      title: 'Break Time',
-      duration: '30 min',
-      type: 'break',
-    ),
-    TimetableEntry(
-      time: '12:30 PM',
-      title: 'Trigonometry JEE',
-      center: 'Kalyan',
-      duration: '1:30 hr',
-      type: 'class',
-    ),
-    TimetableEntry(
-      time: '2:00 PM',
-      title: 'Doubt Session',
-      center: 'Kalyan',
-      duration: '1:30 hr',
-      type: 'doubt',
-    ),
-  ];
+  List<TimetableEntry> _dailySchedule = [];
+  bool _isLoading = true;
+  String _error = '';
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _fetchTimetable();
   }
 
   @override
@@ -80,14 +49,77 @@ class _TimetableScreenState extends State<TimetableScreen>
     super.dispose();
   }
 
+  Future<void> _fetchTimetable() async {
+    try {
+      print('[DEBUG] Fetching teacher session...');
+      final sessionManager = TeacherSessionManager();
+      final session = await sessionManager.getSession();
+
+      if (session == null) {
+        print('[ERROR] No session found. Teacher not logged in.');
+        setState(() {
+          _error = 'No session found. Please log in again.';
+          _isLoading = false;
+        });
+        return;
+      }
+
+      final token = session['token'].toString().trim();
+      print('[DEBUG] Token retrieved: $token');
+
+      final service = TeacherTimetableService(token: token);
+      final timetable = await service.fetchTimetable(
+        startDate: '2025-10-13',
+        endDate: '2025-10-19',
+      );
+
+      setState(() {
+        _dailySchedule = timetable.map((entry) {
+          final type = entry.type == 'LECTURE'
+              ? 'class'
+              : entry.type == 'AVAILABILITY_SLOT'
+              ? 'doubt'
+              : 'break';
+
+          final duration = entry.endTime
+              .difference(entry.startTime)
+              .inMinutes
+              .toString() +
+              ' min';
+
+          final time =
+              "${entry.startTime.hour.toString().padLeft(2, '0')}:${entry.startTime.minute.toString().padLeft(2, '0')}";
+
+          return TimetableEntry(
+            time: time,
+            title: entry.title,
+            center: entry.details['batchId']?.toString(),
+            duration: duration,
+            type: type,
+          );
+        }).toList();
+
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('[ERROR] Failed to fetch timetable: $e');
+      if (e.toString().contains('Unauthorized')) {
+        await TeacherSessionManager().clearSession();
+        print('[DEBUG] Cleared expired session. Please log in again.');
+      }
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F4F8), // A light grey background
-      // 1. Connect the TeacherAppDrawer to the Scaffold.
+      backgroundColor: const Color(0xFFF0F4F8),
       drawer: const TeacherAppDrawer(),
       appBar: AppBar(
-        // 2. The Scaffold will automatically add a menu icon to open the drawer.
         title: const Text(
           "Prof. RamSwaroop's Timetable",
           style: TextStyle(
@@ -119,8 +151,24 @@ class _TimetableScreenState extends State<TimetableScreen>
     );
   }
 
-  /// Builds the content for the "Daily" tab.
   Widget _buildDailyTimetable() {
+    if (_isLoading) {
+      print('[DEBUG] Loading timetable...');
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_error.isNotEmpty) {
+      print('[DEBUG] Displaying error: $_error');
+      return Center(child: Text('Error: $_error'));
+    }
+
+    if (_dailySchedule.isEmpty) {
+      print('[DEBUG] No classes scheduled.');
+      return const Center(child: Text('No classes scheduled.'));
+    }
+
+    print('[DEBUG] Displaying timetable with ${_dailySchedule.length} entries.');
+
     return ListView(
       padding: const EdgeInsets.all(16.0),
       children: [
@@ -135,7 +183,6 @@ class _TimetableScreenState extends State<TimetableScreen>
     );
   }
 
-  /// A helper widget to create a single row in the timetable.
   Widget _buildTimetableEntry(TimetableEntry entry) {
     Color cardColor;
     switch (entry.type) {
@@ -155,7 +202,6 @@ class _TimetableScreenState extends State<TimetableScreen>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Time on the left
           SizedBox(
             width: 70,
             child: Text(
@@ -167,7 +213,6 @@ class _TimetableScreenState extends State<TimetableScreen>
             ),
           ),
           const SizedBox(width: 10),
-          // Details card on the right
           Expanded(
             child: Container(
               padding: const EdgeInsets.all(16.0),
@@ -208,7 +253,6 @@ class _TimetableScreenState extends State<TimetableScreen>
     );
   }
 
-  /// A placeholder for the "Weekly" tab content.
   Widget _buildWeeklyPlaceholder() {
     return const Center(
       child: Column(

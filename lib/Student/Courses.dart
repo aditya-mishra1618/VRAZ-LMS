@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 
-import '../session_manager.dart';
-import 'api_service.dart';
+import '../student_session_manager.dart';
+import 'service/api_service.dart';
 import 'app_drawer.dart';
-import 'course_models.dart';
+import 'models/course_models.dart';
 
 enum CourseView { subject, topicList, topicContent }
 

@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'Student/auth_models.dart';
+import 'Student/models/auth_models.dart';
 
 class SessionManager extends ChangeNotifier {
   // --- Storage Keys ---
@@ -16,7 +16,7 @@ class SessionManager extends ChangeNotifier {
 
   // --- State for Active Session ---
   UserModel? _currentUser;
-  String? _authToken;
+  static String? _authToken;
   bool _isLoggedIn = false;
   bool _isInitialized = false;
 
@@ -111,5 +111,11 @@ class SessionManager extends ChangeNotifier {
     // Note: We DO NOT clear the _savedUsers map here.
 
     notifyListeners();
+  }
+  Future<String?> loadToken() async {
+    if (!_isInitialized) {
+      await _initializeSession();
+    }
+    return _authToken;
   }
 }

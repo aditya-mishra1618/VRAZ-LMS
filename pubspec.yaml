@@ -18,29 +18,30 @@ dependencies:
 
   # File and Image Pickers
   image_picker: ^1.1.2
-  file_picker: ^8.0.5  # Updated
+  file_picker: ^8.0.5
   path_provider: ^2.1.3
 
-  # Permissions
-  permission_handler: ^12.0.1
+  # Permissions - ✅ REMOVED (flutter_sound handles this)
+  # permission_handler: ^12.0.1
 
   # Audio Recording and Playback
-  flutter_sound: ^9.3.0
-  record: ^6.1.2
-  just_audio: ^0.10.5
+  flutter_sound: ^9.2.13
+  just_audio: ^0.9.36
 
   # State Management & Utils
-  provider: ^6.1.2  # Updated
+  provider: ^6.1.2
   intl: ^0.19.0
 
   # Video and Network
-  youtube_player_flutter: ^9.0.1 # Updated
-  http: ^1.2.1 # Updated
+  youtube_player_flutter: ^9.0.1
+  http: ^1.2.1
 
   # Local Storage
-  flutter_secure_storage: ^9.2.2 # Updated
+  flutter_secure_storage: ^9.2.2
   shared_preferences: ^2.2.3
   args: ^2.7.0
+
+  # ❌ REMOVED THIS LINE - record: ^5.2.1
 
 dev_dependencies:
   flutter_test:
@@ -50,7 +51,5 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
-  # Register asset folders
   assets:
     - assets/
-#    - assets/audio/ # Added for your voice notes

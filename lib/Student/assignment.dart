@@ -9,7 +9,7 @@ import 'package:vraz_application/Student/service/assignment_api.dart';
 
 // 3. PROJECT FILES
 // This should be the path to your central navigation drawer.
-import '../session_manager.dart';
+import '../student_session_manager.dart';
 import 'app_drawer.dart';
 import 'models/assignment_model.dart';
 // Import your SessionManager

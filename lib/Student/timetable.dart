@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../session_manager.dart';
-import 'api_service.dart';
+import '../student_session_manager.dart';
+import 'service/api_service.dart';
 import 'app_drawer.dart';
 
 

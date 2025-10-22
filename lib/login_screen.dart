@@ -5,14 +5,19 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:vraz_application/Student/Student_dashboard.dart';
+import 'package:vraz_application/teacher_session_manager.dart';
 
 import 'Admin/admin_dashboard_screen.dart';
 import 'Parents/parents_dashboard.dart';
-import 'Student/auth_models.dart';
+import 'Student/models/auth_models.dart';
 import 'Teacher/Teacher_Dashboard_Screen.dart';
-// --- Imports for Session Management & API Config ---
+
+
+// --- Imports for API Config ---
+import 'Teacher/models/teacher_model.dart';
+import 'Teacher/services/login_api.dart';
 import 'api_config.dart';
-import 'session_manager.dart';
+import 'student_session_manager.dart';
 
 class LoginScreen extends StatefulWidget {
   final String role;
@@ -27,7 +32,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _otpSent = false;
   final TextEditingController _mobileController = TextEditingController();
   final List<TextEditingController> _otpControllers =
-      List.generate(6, (_) => TextEditingController());
+  List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
   Timer? _timer;
   int _start = 30;
@@ -46,83 +51,104 @@ class _LoginScreenState extends State<LoginScreen> {
     _mobileController.dispose();
     _userIdController.dispose();
     _passwordController.dispose();
-    for (var c in _otpControllers) {
-      c.dispose();
-    }
-    for (var n in _focusNodes) {
-      n.dispose();
-    }
+    for (var c in _otpControllers) c.dispose();
+    for (var n in _focusNodes) n.dispose();
     _timer?.cancel();
     super.dispose();
   }
 
-  // --- API Methods ---
-
+  // ==================== OTP APIs ========================
   Future<bool> _sendOtpApi(String phoneNumber) async {
-    // ... (This function remains unchanged)
     final url = Uri.parse('${ApiConfig.baseUrl}/api/users/login/otp');
     try {
+      debugPrint('[DEBUG] Sending OTP to $phoneNumber');
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
         body: json.encode({'phoneNumber': phoneNumber}),
       );
-      if (response.statusCode >= 200 && response.statusCode < 300) return true;
-      return false;
+      debugPrint('[DEBUG] OTP API response: ${response.statusCode} ${response.body}');
+      return response.statusCode >= 200 && response.statusCode < 300;
     } catch (e) {
+      debugPrint('[ERROR] OTP send failed: $e');
       return false;
     }
   }
 
   Future<Map<String, dynamic>?> _verifyOtpApi(String phone, String otp) async {
-    // ... (This function remains unchanged)
     final url = Uri.parse('${ApiConfig.baseUrl}/api/users/verify/otp');
     try {
+      debugPrint('[DEBUG] Verifying OTP $otp for $phone');
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
         body: json.encode({'phoneNumber': phone, 'otp': otp}),
       );
+      debugPrint('[DEBUG] OTP Verify response: ${response.statusCode} ${response.body}');
       if (response.statusCode == 200) return json.decode(response.body);
       return null;
     } catch (e) {
+      debugPrint('[ERROR] OTP verification failed: $e');
       return null;
     }
   }
 
-  // --- NEW: Dummy API for Teacher/Admin Login ---
-  Future<Map<String, dynamic>?> _credentialLoginApi(
-      String userId, String password) async {
-    // TODO: Replace this with your actual User ID/Password login API call.
-    print(
-        "Attempting dummy credential login for User ID: $userId, Password: $password");
-    await Future.delayed(const Duration(seconds: 2)); // Simulate network delay
+  // ==================== Teacher/Admin Credential API ====================
+  Future<void> _credentialLoginApi(String email, String password) async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
 
-    // Simulate a successful login if password is "password"
-    if (password == "password") {
-      // Return a user object similar to the OTP response
-      return {
-        "message": "Login successful",
-        "token": "DUMMY_TOKEN_FOR_${widget.role.toUpperCase()}",
-        "user": {
-          "id": "dummy_${widget.role.toLowerCase()}_id",
-          "fullName": "Dummy ${widget.role}",
-          "email": "${widget.role.toLowerCase()}@example.com",
-          "role": widget.role.toLowerCase(),
-          "permissions": {}, // Add dummy permissions if needed
-          "admissionId": null
-        }
-      };
-    } else {
-      _errorMessage = "Invalid User ID or Password.";
-      return null;
+    debugPrint('[DEBUG] Attempting login for $email');
+
+    try {
+      final response = await LoginApiService.credentialLogin(email, password);
+
+      debugPrint('[DEBUG] Login API response: $response');
+
+      if (response != null && response['token'] != null) {
+        final teacher = TeacherModel.fromJson(response['user']);
+        final token = response['token'];
+
+        debugPrint('[DEBUG] Login successful. Token: $token, User: ${teacher.email}');
+
+        // Save session
+        final sessionManager = TeacherSessionManager();
+        await sessionManager.saveSession(teacher, token);
+
+        if (!mounted) return;
+
+        // Navigate to Teacher Dashboard
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const TeacherDashboardScreen()),
+              (route) => false,
+        );
+      } else {
+        debugPrint('[ERROR] Login failed. Response: $response');
+        setState(() {
+          _errorMessage =
+          response != null ? response['message'] : 'Login failed. Try again.';
+        });
+      }
+    } catch (e, stack) {
+      debugPrint('[ERROR] Exception during login: $e');
+      debugPrint('[STACKTRACE] $stack');
+      setState(() {
+        _errorMessage = 'Login failed due to an exception. See debug logs.';
+      });
+    }
+
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
 
-  // --- Logic Handlers ---
-
+  // ==================== Logic Handlers ====================
   void startTimer() {
-    // ... (This function remains unchanged)
     _start = 30;
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -139,31 +165,45 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _handleStudentLoginAttempt() async {
-    // ... (This function remains unchanged)
     if (_mobileController.text.length != 10) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Please enter a valid 10-digit mobile number.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid 10-digit mobile number.')),
+      );
       return;
     }
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
+
     final sessionManager = Provider.of<SessionManager>(context, listen: false);
     final phoneNumber = _mobileController.text;
     final savedSession = await sessionManager.getSavedSession(phoneNumber);
+
     if (savedSession != null) {
       final user = savedSession['user'] as UserModel;
       final token = savedSession['token'] as String;
       await sessionManager.createSession(user, token, phoneNumber);
       if (!mounted) return;
       Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (context) => const StudentDashboard()),
-          (route) => false);
+        context,
+        MaterialPageRoute(builder: (_) => const StudentDashboard()),
+            (route) => false,
+      );
     } else {
-      await _requestAndSendOtp();
+      final success = await _sendOtpApi(phoneNumber);
+      if (!mounted) return;
+      setState(() {
+        if (success) {
+          _otpSent = true;
+          startTimer();
+        } else {
+          _errorMessage = "Failed to send OTP. Please try again.";
+        }
+      });
     }
+
     if (mounted) {
       setState(() {
         _isLoading = false;
@@ -171,45 +211,34 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _requestAndSendOtp() async {
-    // ... (This function remains unchanged)
-    final success = await _sendOtpApi(_mobileController.text);
-    if (!mounted) return;
-    setState(() {
-      if (success) {
-        _otpSent = true;
-        startTimer();
-      } else {
-        _errorMessage = "Failed to send OTP. Please try again.";
-      }
-    });
-  }
-
   void _verifyOtp() async {
-    // ... (This function remains unchanged)
     String otp = _otpControllers.map((c) => c.text).join();
     if (otp.length != 6) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Please enter the complete 6-digit OTP.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter the complete 6-digit OTP.')),
+      );
       return;
     }
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
+
     final phoneNumber = _mobileController.text;
     final responseData = await _verifyOtpApi(phoneNumber, otp);
+
     if (responseData != null && mounted) {
       try {
         final user = UserModel.fromJson(responseData['user']);
         final token = responseData['token'];
-        final sessionManager =
-            Provider.of<SessionManager>(context, listen: false);
+        final sessionManager = Provider.of<SessionManager>(context, listen: false);
         await sessionManager.createSession(user, token, phoneNumber);
         Navigator.pushAndRemoveUntil(
-            context,
-            MaterialPageRoute(builder: (context) => const StudentDashboard()),
-            (route) => false);
+          context,
+          MaterialPageRoute(builder: (_) => const StudentDashboard()),
+              (route) => false,
+        );
       } catch (e) {
         if (!mounted) return;
         setState(() {
@@ -217,6 +246,7 @@ class _LoginScreenState extends State<LoginScreen> {
         });
       }
     }
+
     if (mounted) {
       setState(() {
         _isLoading = false;
@@ -224,43 +254,13 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  // --- MODIFIED: Dummy login is now just for Parents ---
-  void _dummyParentLogin() {
-    if (_mobileController.text.length != 10) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Please enter a valid 10-digit mobile number.')),
-      );
-      return;
-    }
-    // For parents, we just simulate the OTP screen without a real API call
-    setState(() {
-      _otpSent = true;
-      startTimer();
-    });
-  }
-
-  void _dummyParentVerify() {
-    String otp = _otpControllers.map((c) => c.text).join();
-    if (otp.length == 6) {
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (context) => const ParentDashboardScreen()),
-        (route) => false,
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter the complete 6-digit OTP.')),
-      );
-    }
-  }
-
-  // --- NEW: Logic handler for Teacher/Admin credential login ---
   void _handleCredentialLogin() async {
-    if (_userIdController.text.isEmpty || _passwordController.text.isEmpty) {
+    final email = _userIdController.text.trim();
+    final password = _passwordController.text;
+
+    if (email.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Please enter both User ID and Password.')),
+        const SnackBar(content: Text('Please enter both Email and Password.')),
       );
       return;
     }
@@ -270,10 +270,39 @@ class _LoginScreenState extends State<LoginScreen> {
       _errorMessage = null;
     });
 
-    final responseData = await _credentialLoginApi(
-        _userIdController.text, _passwordController.text);
+    debugPrint('[DEBUG] Initiating login for: $email');
 
-    if (responseData != null && mounted) {
+    try {
+      final response = await LoginApiService.credentialLogin(email, password);
+      debugPrint('[DEBUG] API Response: $response');
+
+      if (response == null) {
+        debugPrint('[ERROR] Response is null');
+        setState(() {
+          _errorMessage = 'Login failed. Please try again.';
+        });
+        return;
+      }
+
+      if (response['token'] == null || response['user'] == null) {
+        debugPrint('[ERROR] Token or user missing in response');
+        setState(() {
+          _errorMessage = response['message'] ?? 'Login failed.';
+        });
+        return;
+      }
+
+      // Parse user and save session
+      final teacher = TeacherModel.fromJson(response['user']);
+      final token = response['token'];
+
+      debugPrint('[DEBUG] Login successful. Saving session...');
+      await TeacherSessionManager().saveSession(teacher, token);
+      debugPrint('[DEBUG] Token saved: $token, User: ${teacher.fullName}');
+
+      if (!mounted) return;
+
+      // Navigate based on role
       Widget destination;
       switch (widget.role) {
         case 'Teacher':
@@ -283,26 +312,38 @@ class _LoginScreenState extends State<LoginScreen> {
           destination = const AdminDashboardScreen();
           break;
         default:
-          return; // Should not happen
+          debugPrint('[ERROR] Unknown role: ${widget.role}');
+          setState(() {
+            _errorMessage = 'Unknown user role.';
+          });
+          return;
       }
+
       Navigator.pushAndRemoveUntil(
         context,
-        MaterialPageRoute(builder: (context) => destination),
-        (route) => false,
+        MaterialPageRoute(builder: (_) => destination),
+            (route) => false,
       );
-    }
 
-    // Error message is set inside the API call
-    setState(() {
-      _isLoading = false;
-    });
+    } catch (e, stack) {
+      debugPrint('[ERROR] Exception during login: $e');
+      debugPrint('[STACKTRACE] $stack');
+      setState(() {
+        _errorMessage = 'Login failed due to an exception. Check debug logs.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
+  // ==================== UI Components ====================
   @override
   Widget build(BuildContext context) {
-    // Determine which UI to show based on the role
     final isOtpRole = widget.role == 'Student' || widget.role == 'Parent';
-    final isStudent = widget.role == 'Student';
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -314,16 +355,16 @@ class _LoginScreenState extends State<LoginScreen> {
           onPressed: _isLoading
               ? null
               : () {
-                  if (_otpSent && isOtpRole) {
-                    setState(() {
-                      _otpSent = false;
-                      _timer?.cancel();
-                      _errorMessage = null;
-                    });
-                  } else {
-                    Navigator.of(context).pop();
-                  }
-                },
+            if (_otpSent && isOtpRole) {
+              setState(() {
+                _otpSent = false;
+                _timer?.cancel();
+                _errorMessage = null;
+              });
+            } else {
+              Navigator.of(context).pop();
+            }
+          },
         ),
       ),
       body: Stack(
@@ -350,7 +391,7 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // UI for Student / Parent (Mobile Number)
+  // Mobile Input for OTP roles
   Column _buildMobileView() {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -367,11 +408,9 @@ class _LoginScreenState extends State<LoginScreen> {
           maxLength: 10,
           decoration: InputDecoration(
             hintText: 'Mobile Number',
-            prefixIcon:
-                const Icon(Icons.phone_android_outlined, color: Colors.grey),
+            prefixIcon: const Icon(Icons.phone_android_outlined, color: Colors.grey),
             prefixText: '+91 | ',
-            prefixStyle:
-                const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            prefixStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             counterText: "",
             filled: true,
             fillColor: const Color(0xFFF7F7F7),
@@ -386,7 +425,7 @@ class _LoginScreenState extends State<LoginScreen> {
           child: ElevatedButton(
             onPressed: widget.role == 'Student'
                 ? _handleStudentLoginAttempt
-                : _dummyParentLogin,
+                : () {}, // Parent OTP API can be integrated later
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF2A65F8),
               padding: const EdgeInsets.symmetric(vertical: 16),
@@ -401,7 +440,6 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // UI for OTP Verification
   Column _buildOtpView() {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -432,11 +470,7 @@ class _LoginScreenState extends State<LoginScreen> {
           children: [
             const Text("Didn't receive code? "),
             TextButton(
-              onPressed: _start == 0
-                  ? (widget.role == 'Student'
-                      ? _requestAndSendOtp
-                      : _dummyParentLogin)
-                  : null,
+              onPressed: _start == 0 ? _requestAndSendOtp : null,
               child: Text(_start == 0 ? 'Resend OTP' : 'Resend in $_start s'),
             ),
           ],
@@ -445,8 +479,7 @@ class _LoginScreenState extends State<LoginScreen> {
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
-            onPressed:
-                widget.role == 'Student' ? _verifyOtp : _dummyParentVerify,
+            onPressed: _verifyOtp,
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF2A65F8),
               padding: const EdgeInsets.symmetric(vertical: 16),
@@ -461,7 +494,6 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // NEW: UI for Teacher / Admin (User ID & Password)
   Column _buildCredentialView() {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -475,7 +507,7 @@ class _LoginScreenState extends State<LoginScreen> {
         TextField(
           controller: _userIdController,
           decoration: InputDecoration(
-            hintText: 'User ID',
+            hintText: 'Email',
             prefixIcon: const Icon(Icons.person_outline, color: Colors.grey),
             filled: true,
             fillColor: const Color(0xFFF7F7F7),
@@ -536,7 +568,6 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   SizedBox _buildOtpBox(int index) {
-    // ... (This widget remains unchanged)
     return SizedBox(
       width: 50,
       height: 50,
@@ -556,14 +587,23 @@ class _LoginScreenState extends State<LoginScreen> {
               borderSide: BorderSide.none),
         ),
         onChanged: (value) {
-          if (value.isNotEmpty && index < 5) {
-            _focusNodes[index + 1].requestFocus();
-          }
-          if (value.isEmpty && index > 0) {
-            _focusNodes[index - 1].requestFocus();
-          }
+          if (value.isNotEmpty && index < 5) _focusNodes[index + 1].requestFocus();
+          if (value.isEmpty && index > 0) _focusNodes[index - 1].requestFocus();
         },
       ),
     );
+  }
+
+  Future<void> _requestAndSendOtp() async {
+    final success = await _sendOtpApi(_mobileController.text);
+    if (!mounted) return;
+    setState(() {
+      if (success) {
+        _otpSent = true;
+        startTimer();
+      } else {
+        _errorMessage = "Failed to send OTP. Please try again.";
+      }
+    });
   }
 }

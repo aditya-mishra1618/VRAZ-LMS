@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:vraz_application/student_profile_provider.dart';
 
-import 'session_manager.dart';
+import 'student_session_manager.dart';
 import 'splash_screen.dart';
 
 void main() {
@@ -13,10 +14,14 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // The ChangeNotifierProvider creates and provides the SessionManager
-    // instance to all descendant widgets, making session data available globally.
-    return ChangeNotifierProvider(
-      create: (context) => SessionManager(),
+    // MultiProvider creates and provides multiple providers
+    // (SessionManager and StudentProfileProvider) to all descendant widgets,
+    // making session data and profile data available globally.
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (context) => SessionManager()),
+        ChangeNotifierProvider(create: (context) => StudentProfileProvider()),
+      ],
       child: MaterialApp(
         title: 'VRaZ Application',
         theme: ThemeData(

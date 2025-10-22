@@ -56,11 +56,11 @@ class TopicModel {
   factory TopicModel.fromJson(Map<String, dynamic> json) {
     var lmsContentsList = json['lmsContents'] as List;
     List<LMSContentModel> lmsContents =
-        lmsContentsList.map((i) => LMSContentModel.fromJson(i)).toList();
+    lmsContentsList.map((i) => LMSContentModel.fromJson(i)).toList();
 
     var subTopicsList = json['subTopics'] as List;
     List<TopicModel> subTopics =
-        subTopicsList.map((i) => TopicModel.fromJson(i)).toList();
+    subTopicsList.map((i) => TopicModel.fromJson(i)).toList();
 
     return TopicModel(
       id: json['id'],
@@ -93,6 +93,21 @@ class TopicModel {
     }
     return allVideos;
   }
+
+  // Helper to check if this is a main topic (no parent)
+  bool isMainTopic() => parentId == null;
+
+  // Helper to find a subtopic by ID within this topic's children
+  TopicModel? findSubTopicById(int topicId) {
+    for (var subTopic in subTopics) {
+      if (subTopic.id == topicId) return subTopic;
+
+      // Search recursively in nested subtopics
+      var found = subTopic.findSubTopicById(topicId);
+      if (found != null) return found;
+    }
+    return null;
+  }
 }
 
 // Represents a subject (e.g., Physics, Chemistry).
@@ -114,7 +129,7 @@ class SubjectModel {
   factory SubjectModel.fromJson(Map<String, dynamic> json) {
     var topicsList = json['topics'] as List;
     List<TopicModel> topics =
-        topicsList.map((i) => TopicModel.fromJson(i)).toList();
+    topicsList.map((i) => TopicModel.fromJson(i)).toList();
 
     return SubjectModel(
       id: json['id'],
@@ -123,5 +138,22 @@ class SubjectModel {
       type: json['type'],
       topics: topics,
     );
+  }
+
+  // Helper to get only main topics (parentId = null)
+  List<TopicModel> getMainTopics() {
+    return topics.where((topic) => topic.isMainTopic()).toList();
+  }
+
+  // Helper to find a topic by id (searches recursively through all levels)
+  TopicModel? findTopicById(int topicId) {
+    for (var topic in topics) {
+      if (topic.id == topicId) return topic;
+
+      // Search in subtopics recursively
+      var found = topic.findSubTopicById(topicId);
+      if (found != null) return found;
+    }
+    return null;
   }
 }
