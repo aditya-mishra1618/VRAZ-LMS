@@ -123,7 +123,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           icon: const Icon(Icons.arrow_back, color: Colors.black54),
           onPressed: () => Navigator.of(context).pop(),
         ),
-        title: const Text('Attendance & Timetable',
+        title: const Text('Attendance',
             style:
                 TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
         actions: [

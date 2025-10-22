@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:vraz_application/Admin/admin_dashboard_screen.dart';
 import 'package:vraz_application/Parents/parents_dashboard.dart';
-import 'package:vraz_application/Student/Student_dashboard.dart';
+import 'package:vraz_application/Student/Student_dashboard_screen.dart';
 import 'package:vraz_application/Teacher/Teacher_Dashboard_Screen.dart';
 import 'package:vraz_application/home_screen.dart';
 import 'package:vraz_application/session_manager.dart';

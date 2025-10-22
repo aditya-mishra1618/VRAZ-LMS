@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart'; // Import for date formatting
+import 'package:intl/intl.dart';
 
-import 'teacher_app_drawer.dart'; // Import your central drawer
+// --- UPDATED IMPORTS ---
+import 'models/manage_attendance_model.dart';
+import 'models/manage_attendance_service.dart';
+import 'teacher_app_drawer.dart'; // Make sure this file exists (likely in /lib)
 
 class ManageAttendanceScreen extends StatefulWidget {
   const ManageAttendanceScreen({super.key});
@@ -10,22 +13,12 @@ class ManageAttendanceScreen extends StatefulWidget {
   State<ManageAttendanceScreen> createState() => _ManageAttendanceScreenState();
 }
 
-// Data model for a student's attendance status
-class StudentAttendance {
-  final String name;
-  final String rollNumber;
-  String status; // 'P', 'A', 'L'
-
-  StudentAttendance({
-    required this.name,
-    required this.rollNumber,
-    this.status = 'A',
-  });
-}
-
 class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
+  // --- STATE VARIABLES ---
   String? _selectedClass = '11th JEE MAINS';
-  DateTime _selectedDate = DateTime.now(); // State for the selected date
+  DateTime _selectedDate = DateTime.now();
+
+  final String _currentSessionId = '171'; // Using the ID from your API example
 
   final List<String> _classOptions = const [
     '11th JEE MAINS',
@@ -34,22 +27,55 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
     '12th JEE ADV',
   ];
 
-  final List<StudentAttendance> _students = [
-    StudentAttendance(name: 'Aditya Sharma', rollNumber: 'Roll No. 1'),
-    StudentAttendance(name: 'Neha Verma', rollNumber: 'Roll No. 2'),
-    StudentAttendance(name: 'Rohan Singh', rollNumber: 'Roll No. 3'),
-    StudentAttendance(name: 'Aisha Khan', rollNumber: 'Roll No. 4'),
-    StudentAttendance(name: 'Vivek Patil', rollNumber: 'Roll No. 5'),
-    StudentAttendance(name: 'Pooja Reddy', rollNumber: 'Roll No. 6'),
-    StudentAttendance(name: 'Kunal Iyer', rollNumber: 'Roll No. 7'),
-  ];
+  // Service to handle API calls
+  final AttendanceService _attendanceService = AttendanceService();
 
+  // Data and UI state
+  List<StudentAttendanceModel> _students = [];
+  bool _isLoading = true;
+  bool _isSubmitting = false;
+  String? _errorMessage;
+
+  // --- LIFECYCLE & DATA FETCHING ---
+  @override
+  void initState() {
+    super.initState();
+    _fetchAttendanceData();
+  }
+
+  Future<void> _fetchAttendanceData() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final students =
+          await _attendanceService.getAttendanceSheet(_currentSessionId);
+      if (mounted) {
+        setState(() {
+          _students = students;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  // --- ATTENDANCE LOGIC ---
   int get _totalStudents => _students.length;
   int get _presentCount => _students.where((s) => s.status == 'P').length;
   int get _absentCount => _students.where((s) => s.status == 'A').length;
   int get _lateCount => _students.where((s) => s.status == 'L').length;
 
-  void _updateAttendanceStatus(StudentAttendance student, String newStatus) {
+  void _updateAttendanceStatus(
+      StudentAttendanceModel student, String newStatus) {
     setState(() {
       student.status = newStatus;
     });
@@ -63,26 +89,50 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
     });
   }
 
-  void _saveAttendance() {
-    final Map<String, String> attendanceData = {
-      for (var s in _students) s.rollNumber: s.status,
-    };
-    print(
-        'Attendance Saved for ${_selectedClass} on ${DateFormat('yyyy-MM-dd').format(_selectedDate)}: $attendanceData');
+  Future<void> _saveAttendance() async {
+    setState(() {
+      _isSubmitting = true;
+    });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Attendance saved successfully!')),
-    );
+    try {
+      final successMessage = await _attendanceService.markAttendance(
+        sessionId: _currentSessionId,
+        students: _students,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(successMessage),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+      }
+    }
   }
 
+  // --- UI WIDGETS ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF0F4F8),
-      // --- 1. ADD THE DRAWER TO THE SCAFFOLD ---
-      drawer: const TeacherAppDrawer(),
+      drawer: const TeacherAppDrawer(), // Requires teacher_app_drawer.dart
       appBar: AppBar(
-        // --- 2. REMOVED LEADING ICONBUTTON TO ALLOW DRAWER ICON ---
         title: const Text('Manage Attendance',
             style:
                 TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
@@ -92,36 +142,92 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
       ),
       body: Stack(
         children: [
-          SingleChildScrollView(
-            padding:
-                const EdgeInsets.only(bottom: 100, left: 16, right: 16, top: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildClassDropdown(),
-                const SizedBox(height: 16),
-                _buildDateNavigation(),
-                const SizedBox(height: 24),
-                _buildAttendanceSummary(),
-                const SizedBox(height: 24),
-                const Text('Student List',
-                    style:
-                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 12),
-                _buildMarkAllPresentButton(),
-                const SizedBox(height: 20),
-                ..._students
-                    .map((student) => _buildStudentCard(student))
-                    .toList(),
-              ],
-            ),
-          ),
+          _buildBodyContent(),
           Positioned(
             left: 0,
             right: 0,
             bottom: 0,
             child: _buildSaveButton(),
           ),
+          if (_isSubmitting)
+            Container(
+              color: Colors.black.withOpacity(0.3),
+              child: const Center(
+                child: Card(
+                  elevation: 4,
+                  child: Padding(
+                    padding: EdgeInsets.all(24.0),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: 16),
+                        Text("Submitting Attendance..."),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBodyContent() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_errorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Error: $_errorMessage',
+                style: const TextStyle(color: Colors.red),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _fetchAttendanceData,
+                child: const Text('Retry'),
+              )
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_students.isEmpty) {
+      return const Center(
+        child: Text(
+          'No students found for this session.',
+          style: TextStyle(fontSize: 16, color: Colors.grey),
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 100, left: 16, right: 16, top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildClassDropdown(),
+          const SizedBox(height: 16),
+          _buildDateNavigation(),
+          const SizedBox(height: 24),
+          _buildAttendanceSummary(),
+          const SizedBox(height: 24),
+          const Text('Student List',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          _buildMarkAllPresentButton(),
+          const SizedBox(height: 20),
+          ..._students.map((student) => _buildStudentCard(student)).toList(),
         ],
       ),
     );
@@ -145,7 +251,6 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
           onChanged: (String? newValue) {
             setState(() {
               _selectedClass = newValue;
-              // You might want to fetch new student list here
             });
           },
           items: _classOptions.map<DropdownMenuItem<String>>((String value) {
@@ -159,7 +264,6 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
     );
   }
 
-  // --- 3. UPDATED WIDGET WITH FUNCTIONAL DATE NAVIGATION ---
   Widget _buildDateNavigation() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -183,7 +287,6 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
         IconButton(
           icon: const Icon(Icons.arrow_forward_ios, size: 20),
           onPressed: () {
-            // Prevent navigating to a future date
             if (!DateUtils.isSameDay(_selectedDate, DateTime.now())) {
               setState(() {
                 _selectedDate = _selectedDate.add(const Duration(days: 1));
@@ -260,7 +363,7 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
     );
   }
 
-  Widget _buildStudentCard(StudentAttendance student) {
+  Widget _buildStudentCard(StudentAttendanceModel student) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
@@ -291,12 +394,13 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    student.name,
+                    student.fullName, // Use fullName from model
                     style: const TextStyle(
                         fontWeight: FontWeight.bold, fontSize: 16),
                   ),
                   Text(
-                    student.rollNumber,
+                    // Show a shortened ID
+                    'ID: ${student.studentId.length > 8 ? student.studentId.substring(0, 8) : student.studentId}...',
                     style: const TextStyle(color: Colors.grey, fontSize: 14),
                   ),
                 ],
@@ -316,7 +420,7 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
   }
 
   Widget _buildStatusButton(
-      String status, StudentAttendance student, Color color) {
+      String status, StudentAttendanceModel student, Color color) {
     final bool isSelected = student.status == status;
     return GestureDetector(
       onTap: () => _updateAttendanceStatus(student, status),
@@ -355,11 +459,11 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
         ],
       ),
       child: ElevatedButton.icon(
-        onPressed: _saveAttendance,
+        onPressed: _isSubmitting || _isLoading ? null : _saveAttendance,
         icon: const Icon(Icons.check_circle_outline, color: Colors.white),
-        label: const Text(
-          'Save Attendance',
-          style: TextStyle(fontSize: 18, color: Colors.white),
+        label: Text(
+          _isSubmitting ? 'Saving...' : 'Save Attendance',
+          style: const TextStyle(fontSize: 18, color: Colors.white),
         ),
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.blueAccent,

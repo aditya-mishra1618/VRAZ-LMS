@@ -1,8 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart'; // Import the video player package
 
-import 'home_screen.dart';
+import 'home_screen.dart'; // The screen to navigate to after the splash
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -12,12 +13,27 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  // Controller to manage video playback
+  late VideoPlayerController _controller;
+
   @override
   void initState() {
     super.initState();
-    // Start the navigation timer. This doesn't need the context and is safe here.
-    Timer(const Duration(seconds: 5), () {
-      // The `context` is available here because this code runs after the build method has completed.
+
+    // Initialize the video controller with your video asset
+    // IMPORTANT: Make sure you have a video file at this path in your project.
+    _controller = VideoPlayerController.asset('assets/videos/splash_video.mp4')
+      ..initialize().then((_) {
+        // Ensure the first frame is shown after the video is initialized
+        setState(() {});
+        // Start playing the video
+        _controller.play();
+        // Set the video to loop for a continuous effect
+        _controller.setLooping(true);
+      });
+
+    // This timer will navigate to the HomeScreen after 5 seconds, regardless of video length.
+    Timer(const Duration(seconds: 10), () {
       if (mounted) {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const HomeScreen()),
@@ -26,25 +42,30 @@ class _SplashScreenState extends State<SplashScreen> {
     });
   }
 
-  // `didChangeDependencies` is called after `initState` and is the correct place
-  // for code that needs access to the widget's context.
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // We pre-cache the image here to ensure it's loaded smoothly.
-    precacheImage(const AssetImage('assets/splash.png'), context);
+  void dispose() {
+    // It's important to dispose of the controller to free up resources.
+    _controller.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      // A black background is often best for video splash screens
+      backgroundColor: Colors.black,
       body: Center(
-        child: SizedBox(
-          width: 150,
-          height: 150,
-          child: Image.asset('assets/splash.png'),
-        ),
+        // Use a ternary operator to check if the video has been initialized.
+        child: _controller.value.isInitialized
+            ?
+            // If initialized, display the video in an AspectRatio widget to maintain its shape.
+            AspectRatio(
+                aspectRatio: _controller.value.aspectRatio,
+                child: VideoPlayer(_controller),
+              )
+            :
+            // While the video is loading, show a loading indicator or a static image.
+            const CircularProgressIndicator(color: Colors.white),
       ),
     );
   }

@@ -4,6 +4,7 @@ import 'app_drawer.dart';
 import 'assignment.dart';
 import 'attendance.dart';
 import 'courses.dart';
+import 'doubt_lecture_screen.dart';
 import 'doubts.dart';
 import 'feedback.dart';
 import 'notification.dart';
@@ -212,6 +213,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
   }
 
   Widget _buildGridView() {
+    // --- UPDATED: Added "Doubt Lecture" after "Timetable" ---
     final List<Map<String, dynamic>> gridItems = [
       {
         'icon': Icons.calendar_today_outlined,
@@ -227,6 +229,12 @@ class _StudentDashboardState extends State<StudentDashboard> {
         'icon': Icons.schedule_outlined,
         'label': 'Timetable',
         'onTap': () => _navigateTo(const TimetableScreen())
+      },
+      // --- NEW ITEM ADDED HERE ---
+      {
+        'icon': Icons.question_answer_outlined, // Icon for doubt lecture
+        'label': 'Doubt Lecture',
+        'onTap': () => _navigateTo(const DoubtLectureScreen())
       },
       {
         'icon': Icons.assignment_outlined,
@@ -256,16 +264,19 @@ class _StudentDashboardState extends State<StudentDashboard> {
       },
     ];
 
+    // --- UPDATED: Increased the number of colors to avoid immediate repetition ---
     final List<Color> cardColors = [
       Colors.orange.shade300,
       Colors.blue.shade300,
       Colors.teal.shade300,
+      Colors.lime.shade400, // Added new color
       Colors.purple.shade300,
       Colors.red.shade300,
       Colors.green.shade300,
       Colors.indigo.shade300,
       Colors.pink.shade300,
       Colors.amber.shade300,
+      Colors.cyan.shade300, // Added new color
     ];
 
     return GridView.builder(
@@ -283,7 +294,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
           gridItems[index]['icon'],
           gridItems[index]['label'],
           gridItems[index]['onTap'],
-          cardColors[index % cardColors.length],
+          cardColors[index % cardColors.length], // Use modulo for color cycling
         );
       },
     );

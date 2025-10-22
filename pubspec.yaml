@@ -36,6 +36,7 @@ dependencies:
   # Video and Network
   youtube_player_flutter: ^9.0.1 # Updated
   http: ^1.2.1 # Updated
+  video_player: ^2.8.6 # Added for video splash screen
 
   # Local Storage
   flutter_secure_storage: ^9.2.2 # Updated
@@ -53,4 +54,5 @@ flutter:
   # Register asset folders
   assets:
     - assets/
-#    - assets/audio/ # Added for your voice notes
+    - assets/videos/ # Added for your splash screen video
+
