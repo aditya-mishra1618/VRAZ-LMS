@@ -4,15 +4,12 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
-import 'package:vraz_application/Student/Student_dashboard.dart';
+import 'package:vraz_application/Student/Student_dashboard_screen.dart';
 import 'package:vraz_application/teacher_session_manager.dart';
 
 import 'Admin/admin_dashboard_screen.dart';
-import 'Parents/parents_dashboard.dart';
 import 'Student/models/auth_models.dart';
 import 'Teacher/Teacher_Dashboard_Screen.dart';
-
-
 // --- Imports for API Config ---
 import 'Teacher/models/teacher_model.dart';
 import 'Teacher/services/login_api.dart';
@@ -32,7 +29,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _otpSent = false;
   final TextEditingController _mobileController = TextEditingController();
   final List<TextEditingController> _otpControllers =
-  List.generate(6, (_) => TextEditingController());
+      List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
   Timer? _timer;
   int _start = 30;
@@ -67,7 +64,8 @@ class _LoginScreenState extends State<LoginScreen> {
         headers: {'Content-Type': 'application/json'},
         body: json.encode({'phoneNumber': phoneNumber}),
       );
-      debugPrint('[DEBUG] OTP API response: ${response.statusCode} ${response.body}');
+      debugPrint(
+          '[DEBUG] OTP API response: ${response.statusCode} ${response.body}');
       return response.statusCode >= 200 && response.statusCode < 300;
     } catch (e) {
       debugPrint('[ERROR] OTP send failed: $e');
@@ -84,7 +82,8 @@ class _LoginScreenState extends State<LoginScreen> {
         headers: {'Content-Type': 'application/json'},
         body: json.encode({'phoneNumber': phone, 'otp': otp}),
       );
-      debugPrint('[DEBUG] OTP Verify response: ${response.statusCode} ${response.body}');
+      debugPrint(
+          '[DEBUG] OTP Verify response: ${response.statusCode} ${response.body}');
       if (response.statusCode == 200) return json.decode(response.body);
       return null;
     } catch (e) {
@@ -111,7 +110,8 @@ class _LoginScreenState extends State<LoginScreen> {
         final teacher = TeacherModel.fromJson(response['user']);
         final token = response['token'];
 
-        debugPrint('[DEBUG] Login successful. Token: $token, User: ${teacher.email}');
+        debugPrint(
+            '[DEBUG] Login successful. Token: $token, User: ${teacher.email}');
 
         // Save session
         final sessionManager = TeacherSessionManager();
@@ -123,13 +123,14 @@ class _LoginScreenState extends State<LoginScreen> {
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (_) => const TeacherDashboardScreen()),
-              (route) => false,
+          (route) => false,
         );
       } else {
         debugPrint('[ERROR] Login failed. Response: $response');
         setState(() {
-          _errorMessage =
-          response != null ? response['message'] : 'Login failed. Try again.';
+          _errorMessage = response != null
+              ? response['message']
+              : 'Login failed. Try again.';
         });
       }
     } catch (e, stack) {
@@ -167,7 +168,8 @@ class _LoginScreenState extends State<LoginScreen> {
   void _handleStudentLoginAttempt() async {
     if (_mobileController.text.length != 10) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid 10-digit mobile number.')),
+        const SnackBar(
+            content: Text('Please enter a valid 10-digit mobile number.')),
       );
       return;
     }
@@ -189,7 +191,7 @@ class _LoginScreenState extends State<LoginScreen> {
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const StudentDashboard()),
-            (route) => false,
+        (route) => false,
       );
     } else {
       final success = await _sendOtpApi(phoneNumber);
@@ -232,12 +234,13 @@ class _LoginScreenState extends State<LoginScreen> {
       try {
         final user = UserModel.fromJson(responseData['user']);
         final token = responseData['token'];
-        final sessionManager = Provider.of<SessionManager>(context, listen: false);
+        final sessionManager =
+            Provider.of<SessionManager>(context, listen: false);
         await sessionManager.createSession(user, token, phoneNumber);
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (_) => const StudentDashboard()),
-              (route) => false,
+          (route) => false,
         );
       } catch (e) {
         if (!mounted) return;
@@ -322,9 +325,8 @@ class _LoginScreenState extends State<LoginScreen> {
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => destination),
-            (route) => false,
+        (route) => false,
       );
-
     } catch (e, stack) {
       debugPrint('[ERROR] Exception during login: $e');
       debugPrint('[STACKTRACE] $stack');
@@ -355,16 +357,16 @@ class _LoginScreenState extends State<LoginScreen> {
           onPressed: _isLoading
               ? null
               : () {
-            if (_otpSent && isOtpRole) {
-              setState(() {
-                _otpSent = false;
-                _timer?.cancel();
-                _errorMessage = null;
-              });
-            } else {
-              Navigator.of(context).pop();
-            }
-          },
+                  if (_otpSent && isOtpRole) {
+                    setState(() {
+                      _otpSent = false;
+                      _timer?.cancel();
+                      _errorMessage = null;
+                    });
+                  } else {
+                    Navigator.of(context).pop();
+                  }
+                },
         ),
       ),
       body: Stack(
@@ -408,9 +410,11 @@ class _LoginScreenState extends State<LoginScreen> {
           maxLength: 10,
           decoration: InputDecoration(
             hintText: 'Mobile Number',
-            prefixIcon: const Icon(Icons.phone_android_outlined, color: Colors.grey),
+            prefixIcon:
+                const Icon(Icons.phone_android_outlined, color: Colors.grey),
             prefixText: '+91 | ',
-            prefixStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            prefixStyle:
+                const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             counterText: "",
             filled: true,
             fillColor: const Color(0xFFF7F7F7),
@@ -587,7 +591,8 @@ class _LoginScreenState extends State<LoginScreen> {
               borderSide: BorderSide.none),
         ),
         onChanged: (value) {
-          if (value.isNotEmpty && index < 5) _focusNodes[index + 1].requestFocus();
+          if (value.isNotEmpty && index < 5)
+            _focusNodes[index + 1].requestFocus();
           if (value.isEmpty && index > 0) _focusNodes[index - 1].requestFocus();
         },
       ),

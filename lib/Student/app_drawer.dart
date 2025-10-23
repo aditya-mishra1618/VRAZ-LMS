@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:vraz_application/session_manager.dart'; // Import SessionManager for logout
 import 'package:vraz_application/splash_screen.dart'; // For logout navigation
+import 'package:vraz_application/student_session_manager.dart'; // Import SessionManager for logout
 
 import 'assignment.dart';
 import 'attendance.dart';

@@ -9,9 +9,9 @@ import 'package:vraz_application/Student/service/assignment_api.dart';
 
 // 3. PROJECT FILES
 // This should be the path to your central navigation drawer.
-import '../student_session_manager.dart';
-import 'app_drawer.dart';
-import 'models/assignment_model.dart';
+import '../student_session_manager.dart'; // Make sure this path is correct
+import 'app_drawer.dart'; // Make sure this path is correct
+import 'models/assignment_model.dart'; // Make sure this path is correct
 // Import your SessionManager
 
 // 4. DATA MODELS
@@ -28,6 +28,7 @@ class Assignment {
   final int maxMarks;
   final String description;
   final List<Submission> submissions;
+  final List<Map<String, dynamic>>? mcqQuestions;
 
   Assignment({
     required this.id,
@@ -42,19 +43,6 @@ class Assignment {
     required this.maxMarks,
     required this.description,
     required this.submissions,
-  });
-}
-
-class AssignmentDetails {
-  final String description;
-  final List<String> howToSteps;
-  final List<Map<String, String>> guideSteps;
-  final List<Map<String, dynamic>>? mcqQuestions;
-
-  AssignmentDetails({
-    required this.description,
-    required this.howToSteps,
-    required this.guideSteps,
     this.mcqQuestions,
   });
 }
@@ -90,7 +78,8 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
   void initState() {
     super.initState();
     print('🎬 DEBUG: AssignmentsScreen initialized');
-    print('📅 DEBUG: Current Date/Time: ${DateTime.now().toUtc().toIso8601String()}');
+    print(
+        '📅 DEBUG: Current Date/Time: ${DateTime.now().toUtc().toIso8601String()}');
 
     // Initialize API service without token (will be set from SessionManager)
     _apiService = AssignmentApiService();
@@ -133,7 +122,6 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     print('✅ DEBUG: Auth token retrieved from SessionManager');
     print('🔐 DEBUG: Token preview: ${authToken.substring(0, 20)}...');
 
-
     // Update API service with the token
     _apiService.updateBearerToken(authToken);
 
@@ -144,7 +132,8 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
   /// Fetches assignments from the API
   Future<void> _fetchAssignments() async {
     print('🔄 DEBUG: Starting to fetch assignments from API');
-    print('⏰ DEBUG: Fetch started at: ${DateTime.now().toUtc().toIso8601String()}');
+    print(
+        '⏰ DEBUG: Fetch started at: ${DateTime.now().toUtc().toIso8601String()}');
 
     setState(() {
       _isLoading = true;
@@ -154,14 +143,18 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     try {
       // Call API service to fetch assignments
       final List<AssignmentResponse> apiAssignments =
-      await _apiService.fetchMyAssignments();
+          await _apiService.fetchMyAssignments();
 
-      print('✅ DEBUG: Successfully received ${apiAssignments.length} assignments from API');
-      print('⏰ DEBUG: Fetch completed at: ${DateTime.now().toUtc().toIso8601String()}');
+      print(
+          '✅ DEBUG: Successfully received ${apiAssignments.length} assignments from API');
+      print(
+          '⏰ DEBUG: Fetch completed at: ${DateTime.now().toUtc().toIso8601String()}');
 
       // Convert API response to UI Assignment model
-      final List<Assignment> convertedAssignments = apiAssignments.map((apiAssignment) {
-        print('🔄 DEBUG: Converting assignment ID ${apiAssignment.id}: ${apiAssignment.assignmentTemplate.title}');
+      final List<Assignment> convertedAssignments =
+          apiAssignments.map((apiAssignment) {
+        print(
+            '🔄 DEBUG: Converting assignment ID ${apiAssignment.id}: ${apiAssignment.assignmentTemplate.title}');
 
         // Determine subject from title (you can modify this logic)
         String subject = 'General';
@@ -186,7 +179,8 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
 
         if (apiAssignment.submissions.isNotEmpty) {
           final latestSubmission = apiAssignment.submissions.first;
-          print('📝 DEBUG: Latest submission status: ${latestSubmission.status}');
+          print(
+              '📝 DEBUG: Latest submission status: ${latestSubmission.status}');
           print('📝 DEBUG: Marks: ${latestSubmission.marks}');
 
           if (latestSubmission.status == 'GRADED') {
@@ -194,16 +188,20 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
                 ? '${latestSubmission.marks}/${apiAssignment.maxMarks}'
                 : 'Pending';
             status = 'Graded: $marksText';
-            submissionDate = 'Submitted: ${_formatDate(latestSubmission.submittedAt)}';
+            submissionDate =
+                'Submitted: ${_formatDate(latestSubmission.submittedAt)}';
             statusDetail = '';
           } else {
             status = 'Submitted';
-            submissionDate = 'Submitted: ${_formatDate(latestSubmission.submittedAt)}';
+            submissionDate =
+                'Submitted: ${_formatDate(latestSubmission.submittedAt)}';
 
             // Check if overdue
             final dueDateTime = DateTime.parse(apiAssignment.dueDate);
-            final submittedDateTime = DateTime.parse(latestSubmission.submittedAt);
-            statusDetail = submittedDateTime.isAfter(dueDateTime) ? 'Overdue' : 'On Time';
+            final submittedDateTime =
+                DateTime.parse(latestSubmission.submittedAt);
+            statusDetail =
+                submittedDateTime.isAfter(dueDateTime) ? 'Overdue' : 'On Time';
           }
         } else {
           // Check if upcoming or overdue
@@ -212,7 +210,8 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
           statusDetail = now.isAfter(dueDateTime) ? 'Overdue' : 'Upcoming';
         }
 
-        print('✅ DEBUG: Status determined - Status: $status, Detail: $statusDetail');
+        print(
+            '✅ DEBUG: Status determined - Status: $status, Detail: $statusDetail');
 
         // Format due date
         String dueDate = 'Due: ${_formatDate(apiAssignment.dueDate)}';
@@ -230,10 +229,12 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
           maxMarks: apiAssignment.maxMarks,
           description: apiAssignment.assignmentTemplate.description,
           submissions: apiAssignment.submissions,
+          mcqQuestions: apiAssignment.assignmentTemplate.mcqQuestions,
         );
       }).toList();
 
-      print('✅ DEBUG: Successfully converted ${convertedAssignments.length} assignments');
+      print(
+          '✅ DEBUG: Successfully converted ${convertedAssignments.length} assignments');
 
       setState(() {
         _assignments = convertedAssignments;
@@ -241,10 +242,10 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
       });
 
       print('✅ DEBUG: UI updated with assignments');
-
     } catch (e) {
       print('❌ DEBUG: Error fetching assignments: $e');
-      print('❌ DEBUG: Error occurred at: ${DateTime.now().toUtc().toIso8601String()}');
+      print(
+          '❌ DEBUG: Error occurred at: ${DateTime.now().toUtc().toIso8601String()}');
 
       setState(() {
         _errorMessage = e.toString().replaceAll('Exception: ', '');
@@ -255,7 +256,8 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: ${e.toString().replaceAll('Exception: ', '')}'),
+            content:
+                Text('Error: ${e.toString().replaceAll('Exception: ', '')}'),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 5),
             action: SnackBarAction(
@@ -283,43 +285,25 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
   /// Helper method to get month name
   String _getMonthName(int month) {
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
     ];
     return months[month - 1];
   }
 
-  // --- Dummy assignment details (kept as fallback) ---
-  final Map<String, AssignmentDetails> _assignmentDetails = {
-    'Kinematics': AssignmentDetails(
-      description:
-      "This assignment focuses on Kinematics, the study of motion. You'll apply concepts like displacement, velocity, acceleration, and time to solve problems involving objects in motion.",
-      howToSteps: [
-        "Review the fundamental concepts of Kinematics.",
-        "Familiarize yourself with the kinematic equations for motion.",
-        "Solve the problems provided, showing all steps.",
-        "Upload your complete solutions as a single PDF or image file."
-      ],
-      guideSteps: [
-        {
-          "title": "1. Identify Knowns & Unknowns",
-          "description": "Read the problem carefully and list all given values."
-        },
-        {
-          "title": "2. Choose the Right Equation",
-          "description": "Select the appropriate kinematic equation."
-        },
-        {
-          "title": "3. Solve and Verify",
-          "description":
-          "Check if your answer is reasonable and has the correct units."
-        },
-      ],
-    ),
-  };
-
   Future<void> _pickImage(ImageSource source) async {
-    print('📸 DEBUG: Picking image from ${source == ImageSource.camera ? "Camera" : "Gallery"}');
+    print(
+        '📸 DEBUG: Picking image from ${source == ImageSource.camera ? "Camera" : "Gallery"}');
 
     final XFile? pickedFile = await _picker.pickImage(source: source);
     if (pickedFile != null) {
@@ -334,9 +318,10 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
   }
 
   void _selectAssignment(Assignment assignment) {
-    print('🎯 DEBUG: Assignment selected: ${assignment.title} (ID: ${assignment.id})');
+    print(
+        '🎯 DEBUG: Assignment selected: ${assignment.title} (ID: ${assignment.id})');
     setState(() {
-      _selectedAssignment = assignment;
+      _selectedAssignment = assignment; // Just set the assignment
       _uploadedFiles.clear();
       _selectedMcqAnswers.clear();
     });
@@ -354,7 +339,8 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     print('📤 DEBUG: Assignment Title: ${_selectedAssignment!.title}');
     print('📤 DEBUG: Assignment ID: ${_selectedAssignment!.id}');
     print('📤 DEBUG: Assignment Type: ${_selectedAssignment!.type}');
-    print('📤 DEBUG: Submission Time: ${DateTime.now().toUtc().toIso8601String()}');
+    print(
+        '📤 DEBUG: Submission Time: ${DateTime.now().toUtc().toIso8601String()}');
 
     final bool hasMcqs = _selectedAssignment!.type == 'MCQ';
 
@@ -424,72 +410,76 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
       ),
       body: _isLoading
           ? const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('Loading assignments...'),
-          ],
-        ),
-      )
-          : _errorMessage != null
-          ? Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, size: 64, color: Colors.red),
-            const SizedBox(height: 16),
-            const Text(
-              'Error loading assignments',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Text(
-                _errorMessage!,
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey[600]),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('Loading assignments...'),
+                ],
               ),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: _fetchAssignments,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
-            ),
-          ],
-        ),
-      )
-          : _assignments.isEmpty
-          ? Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.assignment_outlined, size: 64, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              'No assignments found',
-              style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: _fetchAssignments,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Refresh'),
-            ),
-          ],
-        ),
-      )
-          : ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _assignments.length,
-        itemBuilder: (context, index) {
-          final assignment = _assignments[index];
-          return _buildAssignmentCard(assignment);
-        },
-      ),
+            )
+          : _errorMessage != null && _assignments.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.error_outline,
+                          size: 64, color: Colors.red),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Error loading assignments',
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 32),
+                        child: Text(
+                          _errorMessage!,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey[600]),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      ElevatedButton.icon(
+                        onPressed: _fetchAssignments,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                )
+              : _assignments.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.assignment_outlined,
+                              size: 64, color: Colors.grey[400]),
+                          const SizedBox(height: 16),
+                          Text(
+                            'No assignments found',
+                            style: TextStyle(
+                                fontSize: 18, color: Colors.grey[600]),
+                          ),
+                          const SizedBox(height: 24),
+                          ElevatedButton.icon(
+                            onPressed: _fetchAssignments,
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Refresh'),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _assignments.length,
+                      itemBuilder: (context, index) {
+                        final assignment = _assignments[index];
+                        return _buildAssignmentCard(assignment);
+                      },
+                    ),
     );
   }
 
@@ -497,8 +487,8 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     final statusColor = assignment.status.contains('Pending')
         ? Colors.orange
         : assignment.status.contains('Submitted')
-        ? Colors.blue
-        : Colors.green;
+            ? Colors.blue
+            : Colors.green;
     return Card(
       elevation: 0,
       margin: const EdgeInsets.only(bottom: 16),
@@ -521,8 +511,8 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
                     assignment.subject == 'Physics'
                         ? Icons.rocket_launch_outlined
                         : assignment.subject == 'Maths'
-                        ? Icons.calculate_outlined
-                        : Icons.science_outlined,
+                            ? Icons.calculate_outlined
+                            : Icons.science_outlined,
                     color: Colors.grey[600],
                     size: 32,
                   ),
@@ -582,30 +572,86 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
   }
 
   Widget _buildAssignmentDetailView(Assignment assignment) {
-    print('🔍 DEBUG: Displaying assignment details for: ${assignment.title} (ID: ${assignment.id})');
+    print(
+        '🔍 DEBUG: Displaying assignment details for: ${assignment.title} (ID: ${assignment.id})');
 
-    // Use API description or fallback to dummy data
-    final details = _assignmentDetails[assignment.title] ?? AssignmentDetails(
-      description: assignment.description,
-      howToSteps: [
-        "Read the assignment description carefully.",
-        "Complete the assignment according to the instructions.",
-        "Submit your work before the due date.",
-      ],
-      guideSteps: [
-        {
-          "title": "1. Understand the Task",
-          "description": "Make sure you understand what is required."
-        },
-        {
-          "title": "2. Complete the Work",
-          "description": "Work through the assignment systematically."
-        },
-      ],
-    );
-
+    // Use data from the (now complete) assignment object
+    final String description = assignment.description;
     final bool hasMcqs = assignment.type == 'MCQ';
+    final List<Map<String, dynamic>>? mcqQuestions = assignment.mcqQuestions;
+
     print('📝 DEBUG: Assignment type: ${assignment.type}, Has MCQs: $hasMcqs');
+
+    // --- JEE MAINS/ADVANCED LEVEL DUMMY QUESTIONS ---
+    final List<Map<String, dynamic>> dummyMcqQuestions = [
+      {
+        'question':
+            'Physics: A block of mass m is placed on a smooth inclined plane of inclination θ with the horizontal. The force exerted by the plane on the block has a magnitude of:',
+        'options': ['mg', 'mg cos(θ)', 'mg sin(θ)', 'mg tan(θ)']
+      },
+      {
+        'question': 'Chemistry: The IUPAC name of CH3COCH(CH3)2 is:',
+        'options': [
+          'Isopropyl methyl ketone',
+          '2-Methyl-3-butanone',
+          '3-Methyl-2-butanone',
+          '4-Methyl-2-pentanone'
+        ]
+      },
+      {
+        'question':
+            'Maths: If the lines 2x + 3y + 1 = 0 and 3x - y - 4 = 0 lie along diameters of a circle of circumference 10π, then the equation of the circle is:',
+        'options': [
+          'x² + y² - 2x + 2y - 23 = 0',
+          'x² + y² - 2x - 2y - 23 = 0',
+          'x² + y² + 2x + 2y - 23 = 0',
+          'x² + y² + 2x - 2y - 23 = 0'
+        ]
+      },
+      {
+        'question':
+            'Physics: Two particles A and B of equal mass are suspended from two massless springs of spring constants k1 and k2, respectively. If the maximum velocities, during oscillations, are equal, the ratio of amplitudes of A and B is:',
+        'options': ['√(k1/k2)', 'k1/k2', '√(k2/k1)', 'k2/k1']
+      },
+      {
+        'question':
+            'Maths: The value of the integral ∫(from 0 to π/2) [sin(x) / (sin(x) + cos(x))] dx is:',
+        'options': ['π/4', 'π/2', 'π', '0']
+      },
+    ];
+    // --- End of Dummy Questions ---
+
+    // Determine which questions to display
+    final List<Map<String, dynamic>> questionsToDisplay;
+    if (hasMcqs && mcqQuestions != null && mcqQuestions.isNotEmpty) {
+      print(
+          '📝 DEBUG: Using REAL ${mcqQuestions.length} MCQ questions from API');
+      questionsToDisplay = mcqQuestions;
+    } else if (hasMcqs) {
+      print('📝 DEBUG: Using DUMMY MCQ questions as API data is missing');
+      questionsToDisplay =
+          dummyMcqQuestions; // Use dummy if real ones are missing
+    } else {
+      print('📝 DEBUG: No MCQ questions section needed (Theory assignment)');
+      questionsToDisplay = []; // Empty list for non-MCQ assignments
+    }
+
+    // --- Dummy static data ---
+    final dummyHowToSteps = [
+      "Read the assignment description carefully.",
+      "Complete the assignment according to the instructions.",
+      "Submit your work before the due date.",
+    ];
+    final dummyGuideSteps = [
+      {
+        "title": "1. Understand the Task",
+        "description": "Make sure you understand what is required."
+      },
+      {
+        "title": "2. Complete the Work",
+        "description": "Work through the assignment systematically."
+      },
+    ];
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -616,7 +662,7 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
         ),
         title: const Text('Assignment Details',
             style:
-            TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+                TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
         backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
@@ -628,25 +674,27 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
           children: [
             Text('${assignment.subject}: ${assignment.title}',
                 style:
-                const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                    const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
-            Text(details.description,
+            Text(description,
                 style: TextStyle(color: Colors.grey[700], height: 1.5)),
             const SizedBox(height: 24),
             const Text('How to do it',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             ...List.generate(
-                details.howToSteps.length,
-                    (index) => _buildStepRow(
-                    (index + 1).toString(), details.howToSteps[index])),
+                dummyHowToSteps.length,
+                (index) => _buildStepRow(
+                    (index + 1).toString(), dummyHowToSteps[index])),
             const SizedBox(height: 24),
             const Text('Step-by-step Guide',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
-            ...details.guideSteps.map((step) =>
+            ...dummyGuideSteps.map((step) =>
                 _buildGuideCard(step['title']!, step['description']!)),
-            if (hasMcqs && details.mcqQuestions != null) ...[
+
+            // --- This section uses questionsToDisplay ---
+            if (hasMcqs && questionsToDisplay.isNotEmpty) ...[
               const SizedBox(height: 24),
               const Text('MCQ Challenge',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
@@ -654,14 +702,17 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
               ListView.separated(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                itemCount: details.mcqQuestions!.length,
+                itemCount: questionsToDisplay.length, // Use determined list
                 itemBuilder: (context, index) {
-                  return _buildMcqCard(details.mcqQuestions![index], index);
+                  // Use determined list
+                  return _buildMcqCard(questionsToDisplay[index], index);
                 },
                 separatorBuilder: (context, index) =>
-                const SizedBox(height: 16),
+                    const SizedBox(height: 16),
               ),
             ],
+            // --- End of MCQ section update ---
+
             if (!hasMcqs) ...[
               const SizedBox(height: 24),
               const Text('Your Submission',
@@ -680,7 +731,9 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
           ],
         ),
       ),
-      bottomNavigationBar: _buildSubmissionFooter(details),
+      // Pass the *correct* list of questions to the footer
+      bottomNavigationBar:
+          _buildSubmissionFooter(assignment, questionsToDisplay),
     );
   }
 
@@ -720,6 +773,13 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
   }
 
   Widget _buildMcqCard(Map<String, dynamic> mcqData, int questionIndex) {
+    // API data is assumed to have 'question' (String) and 'options' (List<String>)
+    final String question = mcqData['question'] ?? 'No question text found';
+    final List<String> options = (mcqData['options'] as List<dynamic>?)
+            ?.map((e) => e.toString())
+            .toList() ??
+        [];
+
     return Card(
       elevation: 0,
       color: Colors.blue[50],
@@ -733,17 +793,18 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Q${questionIndex + 1}: ${mcqData['question']}',
+              'Q${questionIndex + 1}: $question',
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             const SizedBox(height: 12),
-            ...(mcqData['options'] as List<String>).map((option) {
+            ...options.map((option) {
               return RadioListTile<String>(
                 title: Text(option),
                 value: option,
                 groupValue: _selectedMcqAnswers[questionIndex],
                 onChanged: (value) {
-                  print('✅ DEBUG: MCQ Answer selected - Q${questionIndex + 1}: $value');
+                  print(
+                      '✅ DEBUG: MCQ Answer selected - Q${questionIndex + 1}: $value');
                   setState(() {
                     if (value != null) {
                       _selectedMcqAnswers[questionIndex] = value;
@@ -785,20 +846,25 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     );
   }
 
-  Widget _buildSubmissionFooter(AssignmentDetails details) {
-    final bool hasMcqs = _selectedAssignment!.type == 'MCQ';
-    final int totalMcqs = details.mcqQuestions?.length ?? 0;
-    final bool allMcqsAnswered = _selectedMcqAnswers.length == totalMcqs;
+  Widget _buildSubmissionFooter(
+      Assignment assignment, List<Map<String, dynamic>> currentQuestions) {
+    final bool hasMcqs = assignment.type == 'MCQ';
+    // Use the length of the *actually displayed* questions
+    final int totalMcqs = currentQuestions.length;
+    final bool allMcqsAnswered = _selectedMcqAnswers.length == totalMcqs &&
+        totalMcqs > 0; // Check totalMcqs > 0
 
     bool isSubmitEnabled;
     if (hasMcqs) {
       isSubmitEnabled = allMcqsAnswered;
-      print('🎯 DEBUG: MCQ Progress - Answered: ${_selectedMcqAnswers.length}/$totalMcqs');
+      print(
+          '🎯 DEBUG: MCQ Progress - Answered: ${_selectedMcqAnswers.length}/$totalMcqs');
     } else {
       isSubmitEnabled = _uploadedFiles.isNotEmpty;
       print('📁 DEBUG: Files uploaded: ${_uploadedFiles.length}');
     }
 
+    // Rest of the footer code remains the same...
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
       decoration: BoxDecoration(
@@ -858,4 +924,4 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
       ),
     );
   }
-}
+} // End of _AssignmentsScreenState

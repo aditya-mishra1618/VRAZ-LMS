@@ -35,8 +35,8 @@ class AssignmentResponse {
           json['assignmentTemplate'] ?? {},
         ),
         submissions: (json['submissions'] as List<dynamic>?)
-            ?.map((e) => Submission.fromJson(e as Map<String, dynamic>))
-            .toList() ??
+                ?.map((e) => Submission.fromJson(e as Map<String, dynamic>))
+                .toList() ??
             [],
       );
     } catch (e) {
@@ -63,11 +63,14 @@ class AssignmentTemplate {
   final String title;
   final String description;
   final String type; // "MCQ" or "Theory"
+  // --- ADDED THIS FIELD ---
+  final List<Map<String, dynamic>>? mcqQuestions;
 
   AssignmentTemplate({
     required this.title,
     required this.description,
     required this.type,
+    this.mcqQuestions, // --- ADDED TO CONSTRUCTOR ---
   });
 
   factory AssignmentTemplate.fromJson(Map<String, dynamic> json) {
@@ -77,6 +80,10 @@ class AssignmentTemplate {
       title: json['title'] ?? '',
       description: json['description'] ?? '',
       type: json['type'] ?? '',
+      // --- ADDED PARSING LOGIC ---
+      mcqQuestions: json['mcqQuestions'] != null
+          ? List<Map<String, dynamic>>.from(json['mcqQuestions'])
+          : null,
     );
   }
 
@@ -85,6 +92,7 @@ class AssignmentTemplate {
       'title': title,
       'description': description,
       'type': type,
+      'mcqQuestions': mcqQuestions, // --- ADDED TO JSON ---
     };
   }
 }

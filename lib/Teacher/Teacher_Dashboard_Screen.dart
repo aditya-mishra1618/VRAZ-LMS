@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:vraz_application/Teacher/manage_attendance_Screen.dart';
 
 import 'hr_section_screen.dart';
-// Import all necessary screen files
-import 'manageAttendanceScreen.dart';
 import 'student_performance_screen.dart';
 import 'syllabus_tracking_screen.dart';
 // Import the central app drawer

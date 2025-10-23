@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-// --- UPDATED IMPORTS ---
+// --- IMPORTS ---
+import '../teacher_session_manager.dart';
 import 'models/manage_attendance_model.dart';
-import 'models/manage_attendance_service.dart';
-import 'teacher_app_drawer.dart'; // Make sure this file exists (likely in /lib)
+import 'services/manage_attendance_service.dart';
+import 'teacher_app_drawer.dart';
 
 class ManageAttendanceScreen extends StatefulWidget {
+  // This constructor is already const, which is correct
   const ManageAttendanceScreen({super.key});
 
   @override
@@ -17,9 +19,7 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
   // --- STATE VARIABLES ---
   String? _selectedClass = '11th JEE MAINS';
   DateTime _selectedDate = DateTime.now();
-
-  final String _currentSessionId = '171'; // Using the ID from your API example
-
+  final String _currentSessionId = '171';
   final List<String> _classOptions = const [
     '11th JEE MAINS',
     '12th JEE MAINS',
@@ -27,8 +27,10 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
     '12th JEE ADV',
   ];
 
-  // Service to handle API calls
   final AttendanceService _attendanceService = AttendanceService();
+  final TeacherSessionManager _sessionManager = TeacherSessionManager();
+
+  String? _authToken;
 
   // Data and UI state
   List<StudentAttendanceModel> _students = [];
@@ -40,7 +42,32 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchAttendanceData();
+    _initializeAndFetchData();
+  }
+
+  Future<void> _initializeAndFetchData() async {
+    try {
+      final session = await _sessionManager.getSession();
+
+      if (session == null || session['token'] == null) {
+        throw Exception("Authentication token not found. Please log in again.");
+      }
+
+      _authToken = session['token'] as String;
+
+      if (_authToken!.isEmpty) {
+        throw Exception("Authentication token is empty. Please log in again.");
+      }
+
+      await _fetchAttendanceData();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   Future<void> _fetchAttendanceData() async {
@@ -50,8 +77,9 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
     });
 
     try {
-      final students =
-          await _attendanceService.getAttendanceSheet(_currentSessionId);
+      final students = await _attendanceService.getAttendanceSheet(
+          _currentSessionId, _authToken!);
+
       if (mounted) {
         setState(() {
           _students = students;
@@ -90,6 +118,16 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
   }
 
   Future<void> _saveAttendance() async {
+    if (_authToken == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Error: Not authenticated. Please log in again.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     setState(() {
       _isSubmitting = true;
     });
@@ -98,6 +136,7 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
       final successMessage = await _attendanceService.markAttendance(
         sessionId: _currentSessionId,
         students: _students,
+        authToken: _authToken!,
       );
 
       if (mounted) {
@@ -126,12 +165,12 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
     }
   }
 
-  // --- UI WIDGETS ---
+  // --- UI WIDGETS (const added) ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF0F4F8),
-      drawer: const TeacherAppDrawer(), // Requires teacher_app_drawer.dart
+      drawer: const TeacherAppDrawer(),
       appBar: AppBar(
         title: const Text('Manage Attendance',
             style:
@@ -151,18 +190,23 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
           ),
           if (_isSubmitting)
             Container(
+              // <-- Added const
               color: Colors.black.withOpacity(0.3),
               child: const Center(
+                // <-- Added const
                 child: Card(
+                  // <-- Added const
                   elevation: 4,
                   child: Padding(
+                    // <-- Added const
                     padding: EdgeInsets.all(24.0),
                     child: Column(
+                      // <-- Added const
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         CircularProgressIndicator(),
-                        SizedBox(height: 16),
-                        Text("Submitting Attendance..."),
+                        SizedBox(height: 16), // <-- Added const
+                        Text("Submitting Attendance..."), // <-- Added const
                       ],
                     ),
                   ),
@@ -182,19 +226,19 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
     if (_errorMessage != null) {
       return Center(
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(16.0), // <-- Added const
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 'Error: $_errorMessage',
-                style: const TextStyle(color: Colors.red),
+                style: const TextStyle(color: Colors.red), // <-- Added const
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 16), // <-- Added const
               ElevatedButton(
-                onPressed: _fetchAttendanceData,
-                child: const Text('Retry'),
+                onPressed: _initializeAndFetchData,
+                child: const Text('Retry'), // <-- Added const
               )
             ],
           ),
@@ -204,29 +248,32 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
 
     if (_students.isEmpty) {
       return const Center(
+        // <-- Added const
         child: Text(
+          // <-- Added const
           'No students found for this session.',
-          style: TextStyle(fontSize: 16, color: Colors.grey),
+          style: TextStyle(fontSize: 16, color: Colors.grey), // <-- Added const
         ),
       );
     }
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.only(bottom: 100, left: 16, right: 16, top: 8),
+      padding: const EdgeInsets.only(
+          bottom: 100, left: 16, right: 16, top: 8), // <-- Added const
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildClassDropdown(),
-          const SizedBox(height: 16),
+          const SizedBox(height: 16), // <-- Added const
           _buildDateNavigation(),
-          const SizedBox(height: 24),
+          const SizedBox(height: 24), // <-- Added const
           _buildAttendanceSummary(),
-          const SizedBox(height: 24),
-          const Text('Student List',
+          const SizedBox(height: 24), // <-- Added const
+          const Text('Student List', // <-- Added const
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
+          const SizedBox(height: 12), // <-- Added const
           _buildMarkAllPresentButton(),
-          const SizedBox(height: 20),
+          const SizedBox(height: 20), // <-- Added const
           ..._students.map((student) => _buildStudentCard(student)).toList(),
         ],
       ),
@@ -235,7 +282,7 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
 
   Widget _buildClassDropdown() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16), // <-- Added const
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
@@ -245,9 +292,12 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
         child: DropdownButton<String>(
           isExpanded: true,
           value: _selectedClass,
-          icon: const Icon(Icons.keyboard_arrow_down),
+          icon: const Icon(Icons.keyboard_arrow_down), // <-- Added const
           style: const TextStyle(
-              color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 16),
+              // <-- Added const
+              color: Colors.black87,
+              fontWeight: FontWeight.bold,
+              fontSize: 16),
           onChanged: (String? newValue) {
             setState(() {
               _selectedClass = newValue;
@@ -269,10 +319,11 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         IconButton(
-          icon: const Icon(Icons.arrow_back_ios, size: 20),
+          icon: const Icon(Icons.arrow_back_ios, size: 20), // <-- Added const
           onPressed: () {
             setState(() {
-              _selectedDate = _selectedDate.subtract(const Duration(days: 1));
+              _selectedDate = _selectedDate
+                  .subtract(const Duration(days: 1)); // <-- Added const
             });
           },
         ),
@@ -280,16 +331,19 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
           child: Center(
             child: Text(
               DateFormat('MMMM d, yyyy').format(_selectedDate),
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                  fontSize: 18, fontWeight: FontWeight.bold), // <-- Added const
             ),
           ),
         ),
         IconButton(
-          icon: const Icon(Icons.arrow_forward_ios, size: 20),
+          icon:
+              const Icon(Icons.arrow_forward_ios, size: 20), // <-- Added const
           onPressed: () {
             if (!DateUtils.isSameDay(_selectedDate, DateTime.now())) {
               setState(() {
-                _selectedDate = _selectedDate.add(const Duration(days: 1));
+                _selectedDate = _selectedDate
+                    .add(const Duration(days: 1)); // <-- Added const
               });
             }
           },
@@ -313,8 +367,8 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
   Widget _buildSummaryCard(String title, int count, Color color) {
     return Expanded(
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        padding: const EdgeInsets.all(12),
+        margin: const EdgeInsets.symmetric(horizontal: 4), // <-- Added const
+        padding: const EdgeInsets.all(12), // <-- Added const
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
@@ -324,9 +378,10 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
           children: [
             Text(
               title,
-              style: const TextStyle(color: Colors.grey, fontSize: 14),
+              style: const TextStyle(
+                  color: Colors.grey, fontSize: 14), // <-- Added const
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 4), // <-- Added const
             Text(
               '$count',
               style: TextStyle(
@@ -348,13 +403,14 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
         onPressed: _markAllPresent,
         style: OutlinedButton.styleFrom(
           backgroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(vertical: 15),
+          padding: const EdgeInsets.symmetric(vertical: 15), // <-- Added const
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
           side: BorderSide(color: Colors.blue.shade200),
         ),
         child: const Text(
+          // <-- Added const
           'Mark All Present',
           style:
               TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold),
@@ -365,8 +421,9 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
 
   Widget _buildStudentCard(StudentAttendanceModel student) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+      margin: const EdgeInsets.only(bottom: 12), // <-- Added const
+      padding: const EdgeInsets.symmetric(
+          vertical: 10, horizontal: 8), // <-- Added const
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
@@ -374,7 +431,7 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
           BoxShadow(
             color: Colors.grey.withOpacity(0.1),
             blurRadius: 5,
-            offset: const Offset(0, 2),
+            offset: const Offset(0, 2), // <-- Added const
           ),
         ],
       ),
@@ -384,24 +441,27 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
           Row(
             children: [
               const CircleAvatar(
+                // <-- Added const
                 radius: 20,
                 backgroundImage:
                     AssetImage('assets/profile_dummy.png'), // Placeholder image
                 backgroundColor: Colors.grey,
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 12), // <-- Added const
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    student.fullName, // Use fullName from model
+                    student.fullName,
                     style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 16),
+                        // <-- Added const
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16),
                   ),
                   Text(
-                    // Show a shortened ID
                     'ID: ${student.studentId.length > 8 ? student.studentId.substring(0, 8) : student.studentId}...',
-                    style: const TextStyle(color: Colors.grey, fontSize: 14),
+                    style: const TextStyle(
+                        color: Colors.grey, fontSize: 14), // <-- Added const
                   ),
                 ],
               ),
@@ -425,7 +485,7 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
     return GestureDetector(
       onTap: () => _updateAttendanceStatus(student, status),
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4),
+        margin: const EdgeInsets.symmetric(horizontal: 4), // <-- Added const
         width: 35,
         height: 35,
         decoration: BoxDecoration(
@@ -447,23 +507,25 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
 
   Widget _buildSaveButton() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16), // <-- Added const
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.1),
             blurRadius: 10,
-            offset: const Offset(0, -5),
+            offset: const Offset(0, -5), // <-- Added const
           ),
         ],
       ),
       child: ElevatedButton.icon(
         onPressed: _isSubmitting || _isLoading ? null : _saveAttendance,
-        icon: const Icon(Icons.check_circle_outline, color: Colors.white),
+        icon: const Icon(Icons.check_circle_outline,
+            color: Colors.white), // <-- Added const
         label: Text(
           _isSubmitting ? 'Saving...' : 'Save Attendance',
-          style: const TextStyle(fontSize: 18, color: Colors.white),
+          style: const TextStyle(
+              fontSize: 18, color: Colors.white), // <-- Added const
         ),
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.blueAccent,

@@ -35,21 +35,25 @@ dependencies:
   # Video and Network
   youtube_player_flutter: ^9.0.1
   http: ^1.2.1
+  video_player: ^2.8.6 # <-- ADDED THIS LINE FOR SPLASH SCREEN VIDEO
 
   # Local Storage
   flutter_secure_storage: ^9.2.2
   shared_preferences: ^2.2.3
   args: ^2.7.0
 
-  # ❌ REMOVED THIS LINE - record: ^5.2.1
-
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
+  http: ^1.0.0
 
 flutter:
   uses-material-design: true
 
+  # Register asset folders
   assets:
     - assets/
+    # If you have a videos folder inside assets, declare it like this:
+    - assets/videos/ # Make sure this line is present if your video is in assets/videos/
+
