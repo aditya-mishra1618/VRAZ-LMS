@@ -297,7 +297,8 @@ class _LoginScreenState extends State<LoginScreen> {
       final token = response['token'];
 
       debugPrint('[DEBUG] Login successful. Saving session...');
-      await TeacherSessionManager().saveSession(teacher, token);
+      final sessionManager = Provider.of<TeacherSessionManager>(context, listen: false);
+      await sessionManager.saveSession(teacher, token);
       debugPrint('[DEBUG] Token saved: $token, User: ${teacher.fullName}');
 
       if (!mounted) return;
