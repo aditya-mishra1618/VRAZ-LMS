@@ -1,9 +1,6 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart'; // Import the video player package
-
-import 'home_screen.dart'; // The screen to navigate to after the splash
+import 'home_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -13,27 +10,12 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
-  // Controller to manage video playback
-  late VideoPlayerController _controller;
-
   @override
   void initState() {
     super.initState();
 
-    // Initialize the video controller with your video asset
-    // IMPORTANT: Make sure you have a video file at this path in your project.
-    _controller = VideoPlayerController.asset('assets/videos/splash_video.mp4')
-      ..initialize().then((_) {
-        // Ensure the first frame is shown after the video is initialized
-        setState(() {});
-        // Start playing the video
-        _controller.play();
-        // Set the video to loop for a continuous effect
-        _controller.setLooping(true);
-      });
-
-    // This timer will navigate to the HomeScreen after 5 seconds, regardless of video length.
-    Timer(const Duration(seconds: 10), () {
+    // Navigate to HomeScreen after 3 seconds
+    Timer(const Duration(seconds: 3), () {
       if (mounted) {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const HomeScreen()),
@@ -43,29 +25,45 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   @override
-  void dispose() {
-    // It's important to dispose of the controller to free up resources.
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // A black background is often best for video splash screens
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.white,
       body: Center(
-        // Use a ternary operator to check if the video has been initialized.
-        child: _controller.value.isInitialized
-            ?
-            // If initialized, display the video in an AspectRatio widget to maintain its shape.
-            AspectRatio(
-                aspectRatio: _controller.value.aspectRatio,
-                child: VideoPlayer(_controller),
-              )
-            :
-            // While the video is loading, show a loading indicator or a static image.
-            const CircularProgressIndicator(color: Colors.white),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // App Logo or Icon
+            Icon(
+              Icons.school,
+              size: 100,
+              color: Colors.blueAccent,
+            ),
+            const SizedBox(height: 20),
+            // App Name
+            const Text(
+              'VRAZ LMS',
+              style: TextStyle(
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+                color: Colors.blueAccent,
+              ),
+            ),
+            const SizedBox(height: 10),
+            // Tagline
+            const Text(
+              'Learning Management System',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey,
+              ),
+            ),
+            const SizedBox(height: 40),
+            // Loading indicator
+            const CircularProgressIndicator(
+              color: Colors.blueAccent,
+            ),
+          ],
+        ),
       ),
     );
   }

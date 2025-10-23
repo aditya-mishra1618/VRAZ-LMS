@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'Student/models/auth_models.dart';
+import 'Student/service/firebase_notification_service.dart';
 
 class SessionManager extends ChangeNotifier {
   // --- Storage Keys ---
@@ -76,39 +77,40 @@ class SessionManager extends ChangeNotifier {
   /// Creates and saves a new session, making it the active one.
   Future<void> createSession(
       UserModel user, String token, String phoneNumber) async {
-    // 1. Set the active session in memory
+    // Existing code
     _currentUser = user;
     _authToken = token;
     _isLoggedIn = true;
 
-    // 2. Save the active session to storage
     await _secureStorage.write(key: _activeTokenKey, value: token);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_activeUserDataKey, json.encode(user.toJson()));
 
-    // 3. Add/update this user in the saved users map
     _savedUsers[phoneNumber] = {
       'token': token,
       'user': user.toJson(),
     };
     await prefs.setString(_savedUsersKey, json.encode(_savedUsers));
 
+    // ✅ ADD THIS: Register device token after login
+    await FirebaseNotificationService().refreshToken(this);
+
     notifyListeners();
   }
 
   /// Logs out the active user but keeps their credentials saved for quick login.
   Future<void> logout() async {
-    // 1. Clear the active session from memory
+    // Delete FCM token
+    await FirebaseNotificationService().deleteToken();
+
+    // Existing logout code
     _currentUser = null;
     _authToken = null;
     _isLoggedIn = false;
 
-    // 2. Delete only the active session from storage
     await _secureStorage.delete(key: _activeTokenKey);
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_activeUserDataKey);
-
-    // Note: We DO NOT clear the _savedUsers map here.
 
     notifyListeners();
   }

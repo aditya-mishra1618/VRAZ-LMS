@@ -4,31 +4,35 @@
     <!-- Internet permission for APIs / Firebase -->
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- ✅ Audio Recording Permissions -->
+    <!-- Firebase Notifications (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Audio Recording Permissions -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
-    <!-- ✅ Camera Permissions -->
+    <!-- Camera Permissions -->
     <uses-permission android:name="android.permission.CAMERA" />
 
-    <!-- ✅ Storage Permissions (for Android 12 and below) -->
+    <!-- Storage Permissions (for Android 12 and below) -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
 
-    <!-- ✅ Media Permissions (for Android 13+) -->
+    <!-- Media Permissions (for Android 13+) -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
-    <!-- ✅ Wake lock for audio playback -->
+    <!-- Wake lock for audio playback -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
-    <!-- ✅ Foreground service for audio recording (optional but recommended) -->
+    <!-- Foreground service for audio recording -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <application
-        android:label="flutter_application_1"
+        android:label="VRAZ LMS"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"
         android:requestLegacyExternalStorage="true">
@@ -42,12 +46,14 @@
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
 
-            <!-- Flutter theme for splash -->
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme" />
 
-            <!-- Launcher intent -->
+            <meta-data
+                android:name="android.app.enableOnBackInvokedCallback"
+                android:value="true" />
+
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -55,20 +61,41 @@
 
         </activity>
 
-        <!-- Required by Flutter v2 embedding -->
+        <!-- Firebase Messaging Service -->
+        <service
+            android:name="com.google.firebase.messaging.FirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- Default notification icon -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@mipmap/ic_launcher" />
+
+        <!-- Default notification color -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/colorPrimary" />
+
+        <!-- Default notification channel -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="vraz_channel" />
+
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
 
     </application>
 
-    <!-- Optional: required for some text plugins -->
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
             <data android:mimeType="text/plain" />
         </intent>
-        <!-- ✅ For camera and gallery -->
         <intent>
             <action android:name="android.media.action.IMAGE_CAPTURE" />
         </intent>

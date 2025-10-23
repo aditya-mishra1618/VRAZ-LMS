@@ -11,7 +11,6 @@ class TeacherDoubtService {
       print('📥 [TeacherDoubtService] Fetching teacher doubts...');
       print('🔐 Bearer Token: Bearer ${token.substring(0, 20)}...');
 
-      // ✅ Correct endpoint from your CURL
       final response = await http.get(
         Uri.parse('$baseUrl/teachers/doubts/getMyDoubts'),
         headers: {
@@ -34,7 +33,7 @@ class TeacherDoubtService {
         throw Exception('Unauthorized. Please login again.');
       } else if (response.statusCode == 404) {
         print('⚠️ No doubts found (404)');
-        return []; // No doubts found
+        return [];
       } else {
         print('❌ Error response: ${response.body}');
         throw Exception('Failed to load doubts: ${response.statusCode}');
@@ -45,13 +44,14 @@ class TeacherDoubtService {
     }
   }
 
-  /// Mark doubt as resolved/closed (you can add this later)
-  Future<bool> resolveDoubt(String token, int doubtId) async {
+  /// Get chat messages for a specific doubt
+  Future<DoubtChatResponse> getChat(String token, int doubtId) async {
     try {
-      print('✅ [TeacherDoubtService] Resolving doubt ID: $doubtId');
+      print('💬 [TeacherDoubtService] Fetching chat for doubt ID: $doubtId');
+      print('🔐 Bearer Token: Bearer ${token.substring(0, 20)}...');
 
-      final response = await http.patch(
-        Uri.parse('$baseUrl/teachers/doubts/$doubtId/resolve'),
+      final response = await http.get(
+        Uri.parse('$baseUrl/teachers/doubts/getChat/$doubtId'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
@@ -59,13 +59,89 @@ class TeacherDoubtService {
       );
 
       print('📩 Response Status: ${response.statusCode}');
+      print('📨 Response Body: ${response.body.substring(0, response.body.length > 500 ? 500 : response.body.length)}...');
 
       if (response.statusCode == 200) {
-        print('✅ Doubt resolved successfully');
+        final jsonData = json.decode(response.body) as Map<String, dynamic>;
+        print('✅ Chat fetched successfully');
+
+        return DoubtChatResponse.fromJson(jsonData);
+      } else if (response.statusCode == 401) {
+        throw Exception('Unauthorized. Please login again.');
+      } else if (response.statusCode == 404) {
+        throw Exception('Doubt not found.');
+      } else {
+        print('❌ Error response: ${response.body}');
+        throw Exception('Failed to load chat: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ Error in getChat: $e');
+      rethrow;
+    }
+  }
+
+  /// Send a text message in a doubt discussion
+  /// Send a text message in a doubt discussion
+  // Update the sendMessage method in your TeacherDoubtService class
+
+  Future<bool> sendMessage(
+      String token,
+      int doubtId, {
+        String? text,
+        String? imageUrl,
+        String? voiceNoteUrl,
+      }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/teacher/doubts/$doubtId/messages'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          if (text != null) 'text': text,
+          if (imageUrl != null) 'image_url': imageUrl,
+          if (voiceNoteUrl != null) 'voice_note_url': voiceNoteUrl,
+        }),
+      );
+
+      if (response.statusCode == 201) {
+        print('✅ Message sent successfully');
         return true;
       } else {
+        print('❌ Error: ${response.statusCode} - ${response.body}');
+        throw Exception('Failed to send message: ${response.body}');
+      }
+    } catch (e) {
+      print('❌ Exception in sendMessage: $e');
+      rethrow;
+    }
+  }
+  /// Mark doubt as resolved/closed
+  /// Mark doubt as resolved/closed
+  Future<bool> resolveDoubt(String token, int doubtId) async {
+    try {
+      print('✅ [TeacherDoubtService] Resolving doubt ID: $doubtId');
+
+      final response = await http.put(
+        Uri.parse('$baseUrl/teachers/doubts/resolve/$doubtId'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      print('📩 Response Status: ${response.statusCode}');
+      print('📨 Response Body: ${response.body}');
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        print('✅ Doubt resolved successfully');
+        return true;
+      } else if (response.statusCode == 401) {
+        throw Exception('Unauthorized. Please login again.');
+      } else {
         print('❌ Error: ${response.body}');
-        throw Exception('Failed to resolve doubt');
+        throw Exception('Failed to resolve doubt: ${response.statusCode}');
       }
     } catch (e) {
       print('❌ Error in resolveDoubt: $e');

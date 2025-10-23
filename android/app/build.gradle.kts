@@ -1,17 +1,20 @@
 plugins {
     id("com.android.application")
+    id("com.google.gms.google-services")
     id("kotlin-android")
     id("dev.flutter.flutter-gradle-plugin")
 }
 
 android {
     namespace = "com.example.flutter_application_1"
-    compileSdk = 35 // Change from 36 to 34
+    compileSdk = 35
     ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        // ✅ ENABLE CORE LIBRARY DESUGARING
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -20,8 +23,8 @@ android {
 
     defaultConfig {
         applicationId = "com.example.vraz_lms"
-        minSdk = 24  // ⚠️ CHANGE THIS from 34 to 21
-        targetSdk = 35  // Change from 36 to 34
+        minSdk = 24
+        targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
@@ -35,4 +38,9 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // ✅ ADD DESUGARING LIBRARY
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 }

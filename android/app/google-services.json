@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "691727788961",
+    "project_id": "vraz-5de39",
+    "storage_bucket": "vraz-5de39.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:691727788961:android:5036a5c6bb9bb1a4d0b9e0",
+        "android_client_info": {
+          "package_name": "com.example.vraz_lms"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA-erptz1If6sFeAdq2gnQ6kXcusy8s6Ys"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

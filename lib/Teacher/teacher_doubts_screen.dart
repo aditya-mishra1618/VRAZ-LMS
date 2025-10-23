@@ -303,8 +303,8 @@ class _TeacherDoubtsScreenState extends State<TeacherDoubtsScreen> {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => TeacherDiscussDoubtScreen(studentName: '', studentSubject: '',
-
+              builder: (context) => TeacherDiscussDoubtScreen(
+                doubt: doubt, // Pass the entire doubt object
               ),
             ),
           );
