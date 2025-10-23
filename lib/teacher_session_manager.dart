@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'Teacher/models/teacher_model.dart'; // Model for Teacher (User)
+import 'Teacher/models/teacher_model.dart';
 
 class TeacherSessionManager {
   static const String _teacherKey = 'teacher_session';
@@ -9,7 +9,6 @@ class TeacherSessionManager {
   Future<void> saveSession(TeacherModel user, String token) async {
     final prefs = await SharedPreferences.getInstance();
 
-    // Clean token before saving (remove whitespace/newlines)
     final cleanToken = token.replaceAll(RegExp(r'\s+'), '');
     final sessionData = {
       'token': cleanToken,
@@ -17,7 +16,7 @@ class TeacherSessionManager {
     };
     await prefs.setString(_teacherKey, json.encode(sessionData));
 
-    print('[DEBUG] Session saved. Token length: ${cleanToken.length}');
+    print('[DEBUG] Teacher session saved. Token length: ${cleanToken.length}');
   }
 
   // Get teacher session
@@ -28,18 +27,23 @@ class TeacherSessionManager {
 
     final data = json.decode(jsonString);
 
-    // Ensure token is clean: remove any extra quotes or whitespace
     String token = data['token'].toString();
     token = token.replaceAll(RegExp(r'^"|"$'), '').replaceAll(RegExp(r'\s+'), '');
 
     final user = TeacherModel.fromJson(data['user']);
 
-    print('[DEBUG] Session retrieved. Token length: ${token.length}');
+    print('[DEBUG] Teacher session retrieved. Token length: ${token.length}');
 
     return {
       'token': token,
       'user': user,
     };
+  }
+
+  // ✅ Load token (for API calls)
+  Future<String?> loadToken() async {
+    final session = await getSession();
+    return session?['token'] as String?;
   }
 
   // Clear teacher session

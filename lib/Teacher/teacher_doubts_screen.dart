@@ -1,33 +1,12 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:just_audio/just_audio.dart'; // 1. Import the audio player package
+import 'package:provider/provider.dart';
+import 'package:vraz_application/Teacher/models/teacher_doubt_model.dart';
 
+import 'package:vraz_application/Teacher/services/teacher_doubt_service.dart';
+import '../teacher_session_manager.dart';
 import 'doubt_discussionn.dart';
 import 'teacher_app_drawer.dart';
-
-// Data model now includes a path for the audio asset
-class StudentDoubt {
-  final String studentName;
-  final String studentImage;
-  final String subject;
-  final String doubtText;
-  final String timeAgo;
-  final String status;
-  final String? attachmentType;
-  final String? voiceDuration;
-  final String? audioAssetPath; // New field
-
-  const StudentDoubt({
-    required this.studentName,
-    required this.studentImage,
-    required this.subject,
-    required this.doubtText,
-    required this.timeAgo,
-    required this.status,
-    this.attachmentType,
-    this.voiceDuration,
-    this.audioAssetPath, // Add to constructor
-  });
-}
 
 class TeacherDoubtsScreen extends StatefulWidget {
   const TeacherDoubtsScreen({super.key});
@@ -37,77 +16,127 @@ class TeacherDoubtsScreen extends StatefulWidget {
 }
 
 class _TeacherDoubtsScreenState extends State<TeacherDoubtsScreen> {
-  // 2. Create an instance of the audio player
-  late AudioPlayer _audioPlayer;
+  final TeacherDoubtService _doubtService = TeacherDoubtService();
 
-  // Dummy data updated with the audio asset path
-  final List<StudentDoubt> _doubts = const [
-    StudentDoubt(
-      studentName: 'Aryan Sharma',
-      studentImage: 'assets/profile.png',
-      subject: 'Physics',
-      doubtText: 'Can you explain the concept of derivatives again?',
-      timeAgo: '2 min ago',
-      status: 'New',
-    ),
-    StudentDoubt(
-      studentName: 'Priya Verma',
-      studentImage: 'assets/profile.png',
-      subject: 'Chemistry',
-      doubtText: 'I\'m having trouble understanding the periodic table.',
-      timeAgo: '15 min ago',
-      status: 'In Progress',
-      attachmentType: 'image',
-    ),
-    StudentDoubt(
-      studentName: 'Rohan Mehta',
-      studentImage: 'assets/profile.png',
-      subject: 'Maths',
-      doubtText: 'I need help with solving quadratic equations.',
-      timeAgo: '1 hour ago',
-      status: 'Resolved',
-    ),
-    StudentDoubt(
-      studentName: 'Anjali Singh',
-      studentImage: 'assets/profile.png',
-      subject: 'English',
-      doubtText: 'Can you help me with my essay on Shakespeare?',
-      timeAgo: '3 hours ago',
-      status: 'New',
-      attachmentType: 'voice',
-      voiceDuration: '0:42',
-      audioAssetPath: 'assets/audio/dummy_note.mp3', // Path to your audio file
-    ),
-  ];
+  // API Data
+  List<TeacherDoubtModel> _doubts = [];
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  // Real-time polling
+  Timer? _pollingTimer;
+  static const Duration _pollingInterval = Duration(seconds: 3);
+
+  // Filter
+  String _selectedFilter = 'All'; // All, New, In Progress, Resolved
 
   @override
   void initState() {
     super.initState();
-    // 3. Initialize the player
-    _audioPlayer = AudioPlayer();
+    _fetchDoubts();
+    _startPolling();
   }
 
   @override
   void dispose() {
-    // 4. Dispose of the player to free up resources
-    _audioPlayer.dispose();
+    _pollingTimer?.cancel();
     super.dispose();
   }
 
-  // 5. Function to handle audio playback
-  void _handleAudioPlayback(String assetPath) async {
-    // Stop any currently playing audio before starting a new one
-    if (_audioPlayer.playing) {
-      await _audioPlayer.stop();
-    }
+  // ========== API METHODS ==========
+
+  Future<void> _fetchDoubts() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
     try {
-      // Load the new audio from assets and play it
-      await _audioPlayer.setAsset(assetPath);
-      _audioPlayer.play();
+      final sessionManager = Provider.of<TeacherSessionManager>(context, listen: false);
+      final token = await sessionManager.loadToken();
+
+      if (token == null) {
+        throw Exception('Authentication token not found. Please login again.');
+      }
+
+      print('📥 Fetching teacher doubts...');
+
+      final doubts = await _doubtService.getMyDoubts(token);
+
+      setState(() {
+        _doubts = doubts;
+        _isLoading = false;
+      });
+
+      print('✅ Loaded ${doubts.length} doubts');
     } catch (e) {
-      print("Error loading or playing audio: $e");
+      setState(() {
+        _errorMessage = e.toString();
+        _isLoading = false;
+      });
+      print('❌ Error loading doubts: $e');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load doubts: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            action: SnackBarAction(
+              label: 'Retry',
+              textColor: Colors.white,
+              onPressed: _fetchDoubts,
+            ),
+          ),
+        );
+      }
     }
   }
+
+  void _startPolling() {
+    _pollingTimer = Timer.periodic(_pollingInterval, (timer) {
+      if (mounted && !_isLoading) {
+        _refreshDoubts();
+      }
+    });
+  }
+
+  Future<void> _refreshDoubts() async {
+    try {
+      final sessionManager = Provider.of<TeacherSessionManager>(context, listen: false);
+      final token = await sessionManager.loadToken();
+
+      if (token == null) return;
+
+      final doubts = await _doubtService.getMyDoubts(token);
+
+      if (mounted && doubts.length != _doubts.length) {
+        setState(() {
+          _doubts = doubts;
+        });
+        print('🔄 Doubts updated: ${_doubts.length} doubts');
+      }
+    } catch (e) {
+      print('⚠️ Error refreshing doubts: $e');
+    }
+  }
+
+  List<TeacherDoubtModel> get _filteredDoubts {
+    if (_selectedFilter == 'All') return _doubts;
+    return _doubts.where((doubt) {
+      switch (_selectedFilter) {
+        case 'New':
+          return doubt.isNew;
+        case 'In Progress':
+          return doubt.isInProgress;
+        case 'Resolved':
+          return doubt.isResolved;
+        default:
+          return true;
+      }
+    }).toList();
+  }
+
+  // ========== UI METHODS ==========
 
   @override
   Widget build(BuildContext context) {
@@ -116,37 +145,152 @@ class _TeacherDoubtsScreenState extends State<TeacherDoubtsScreen> {
       drawer: const TeacherAppDrawer(),
       appBar: AppBar(
         title: const Text('Student Doubts',
-            style:
-                TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+            style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
         backgroundColor: const Color(0xFFF0F4F8),
         elevation: 0,
         centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.black54),
+            onPressed: _fetchDoubts,
+          ),
+        ],
       ),
-      body: ListView.builder(
-        padding: const EdgeInsets.all(16.0),
-        itemCount: _doubts.length,
-        itemBuilder: (context, index) {
-          return _buildDoubtCard(context, _doubts[index]);
-        },
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _errorMessage != null
+          ? _buildErrorWidget()
+          : Column(
+        children: [
+          _buildFilterChips(),
+          Expanded(
+            child: _filteredDoubts.isEmpty
+                ? _buildEmptyWidget()
+                : RefreshIndicator(
+              onRefresh: _fetchDoubts,
+              child: ListView.builder(
+                padding: const EdgeInsets.all(16.0),
+                itemCount: _filteredDoubts.length,
+                itemBuilder: (context, index) {
+                  return _buildDoubtCard(context, _filteredDoubts[index]);
+                },
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildDoubtCard(BuildContext context, StudentDoubt doubt) {
+  Widget _buildFilterChips() {
+    final filters = ['All', 'New', 'In Progress', 'Resolved'];
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: filters.map((filter) {
+            final isSelected = _selectedFilter == filter;
+            return Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: FilterChip(
+                label: Text(filter),
+                selected: isSelected,
+                onSelected: (selected) {
+                  setState(() {
+                    _selectedFilter = filter;
+                  });
+                },
+                backgroundColor: Colors.white,
+                selectedColor: Colors.blueAccent,
+                labelStyle: TextStyle(
+                  color: isSelected ? Colors.white : Colors.black87,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildErrorWidget() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, size: 60, color: Colors.red),
+            const SizedBox(height: 16),
+            const Text(
+              'Failed to load doubts',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _errorMessage ?? 'Unknown error',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: _fetchDoubts,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blueAccent,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyWidget() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.check_circle_outline, size: 80, color: Colors.grey[400]),
+          const SizedBox(height: 16),
+          Text(
+            'No ${_selectedFilter.toLowerCase()} doubts',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[700],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _selectedFilter == 'All'
+                ? 'No student doubts assigned yet'
+                : 'Try selecting a different filter',
+            style: TextStyle(color: Colors.grey[600]),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDoubtCard(BuildContext context, TeacherDoubtModel doubt) {
     Color statusColor;
     Color statusBgColor;
-    switch (doubt.status) {
-      case 'New':
-        statusColor = Colors.green;
-        statusBgColor = Colors.green.shade50;
-        break;
-      case 'In Progress':
-        statusColor = Colors.orange;
-        statusBgColor = Colors.orange.shade50;
-        break;
-      default:
-        statusColor = Colors.grey;
-        statusBgColor = Colors.grey.shade200;
+
+    if (doubt.isNew) {
+      statusColor = Colors.green;
+      statusBgColor = Colors.green.shade50;
+    } else if (doubt.isResolved) {
+      statusColor = Colors.grey;
+      statusBgColor = Colors.grey.shade200;
+    } else {
+      statusColor = Colors.orange;
+      statusBgColor = Colors.orange.shade50;
     }
 
     return Card(
@@ -159,9 +303,9 @@ class _TeacherDoubtsScreenState extends State<TeacherDoubtsScreen> {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => TeacherDiscussDoubtScreen(
-                  studentName: doubt.studentName,
-                  studentSubject: doubt.subject),
+              builder: (context) => TeacherDiscussDoubtScreen(studentName: '', studentSubject: '',
+
+              ),
             ),
           );
         },
@@ -173,24 +317,32 @@ class _TeacherDoubtsScreenState extends State<TeacherDoubtsScreen> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  CircleAvatar(backgroundImage: AssetImage(doubt.studentImage)),
+                  // Student Avatar with Initials
+                  CircleAvatar(
+                    backgroundColor: Colors.blueAccent,
+                    child: Text(
+                      doubt.student.getInitials(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(doubt.studentName,
-                            style:
-                                const TextStyle(fontWeight: FontWeight.bold)),
+                        Text(doubt.student.fullName,
+                            style: const TextStyle(fontWeight: FontWeight.bold)),
                         const SizedBox(height: 4),
                         Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 3),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
                             color: Colors.blue[50],
                             borderRadius: BorderRadius.circular(6),
                           ),
-                          child: Text(doubt.subject,
+                          child: Text(doubt.subject.name,
                               style: TextStyle(
                                   color: Colors.blue[800],
                                   fontSize: 12,
@@ -199,7 +351,7 @@ class _TeacherDoubtsScreenState extends State<TeacherDoubtsScreen> {
                       ],
                     ),
                   ),
-                  Text(doubt.timeAgo,
+                  Text(doubt.getRelativeTime(),
                       style: const TextStyle(color: Colors.grey, fontSize: 12)),
                 ],
               ),
@@ -209,106 +361,67 @@ class _TeacherDoubtsScreenState extends State<TeacherDoubtsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(doubt.doubtText,
-                        style: TextStyle(color: Colors.grey[700], height: 1.4)),
-                    if (doubt.attachmentType == 'image')
-                      const Padding(
-                        padding: EdgeInsets.only(top: 8.0),
-                        child: Icon(Icons.image,
-                            color: Colors.blueAccent, size: 40),
+                    Text(
+                      'Topic: ${doubt.topic.name}',
+                      style: TextStyle(
+                        color: Colors.grey[800],
+                        fontWeight: FontWeight.w500,
+                        fontSize: 13,
                       ),
-                    if (doubt.attachmentType == 'voice')
-                      _buildVoiceNotePlayer(
-                          doubt), // Pass the full doubt object
+                    ),
+                    const SizedBox(height: 4),
+                    Text(doubt.initialQuestion,
+                        style: TextStyle(color: Colors.grey[700], height: 1.4),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis),
                     const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: statusBgColor,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        doubt.status,
-                        style: TextStyle(
-                            color: statusColor,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12),
-                      ),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: statusBgColor,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            doubt.displayStatus,
+                            style: TextStyle(
+                                color: statusColor,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12),
+                          ),
+                        ),
+                        if (doubt.isNew) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.circle, size: 8, color: Colors.red),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Needs Response',
+                                  style: TextStyle(
+                                    color: Colors.red.shade700,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ],
                 ),
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-  // 6. This is now a fully functional audio player widget
-  Widget _buildVoiceNotePlayer(StudentDoubt doubt) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 8.0),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        decoration: BoxDecoration(
-          color: Colors.blue.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(30),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // StreamBuilder listens to the player's state
-            StreamBuilder<PlayerState>(
-              stream: _audioPlayer.playerStateStream,
-              builder: (context, snapshot) {
-                final playerState = snapshot.data;
-                final processingState = playerState?.processingState;
-                final playing = playerState?.playing;
-
-                // Show a loading spinner while buffering
-                if (processingState == ProcessingState.loading ||
-                    processingState == ProcessingState.buffering) {
-                  return Container(
-                    margin: const EdgeInsets.all(8.0),
-                    width: 24.0,
-                    height: 24.0,
-                    child: const CircularProgressIndicator(strokeWidth: 2),
-                  );
-                }
-                // Show a Play button if not playing
-                else if (playing != true) {
-                  return IconButton(
-                    icon:
-                        const Icon(Icons.play_arrow, color: Colors.blueAccent),
-                    onPressed: () =>
-                        _handleAudioPlayback(doubt.audioAssetPath!),
-                  );
-                }
-                // Show a Pause button if playing
-                else if (processingState != ProcessingState.completed) {
-                  return IconButton(
-                    icon: const Icon(Icons.pause, color: Colors.blueAccent),
-                    onPressed: _audioPlayer.pause,
-                  );
-                }
-                // Show a Replay button when completed
-                else {
-                  return IconButton(
-                    icon: const Icon(Icons.replay, color: Colors.blueAccent),
-                    onPressed: () => _audioPlayer.seek(Duration.zero),
-                  );
-                }
-              },
-            ),
-            const Text("Voice Note", style: TextStyle(color: Colors.black54)),
-            const Spacer(),
-            Text(doubt.voiceDuration ?? '',
-                style: const TextStyle(
-                    color: Colors.blueAccent, fontWeight: FontWeight.w500)),
-            const SizedBox(width: 8),
-          ],
         ),
       ),
     );
