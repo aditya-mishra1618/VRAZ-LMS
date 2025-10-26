@@ -2,8 +2,33 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart'; // Import for date formatting
 
 import 'parent_app_drawer.dart';
+// --- FIX: Import the chat screen ---
+import 'support_chat_screen.dart'; // Ensure this path is correct
+
+// --- NEW: Data Model for Grievance ---
+// Using a class makes managing data easier
+class Grievance {
+  final String id;
+  final String title;
+  final DateTime date;
+  String status; // 'Resolved', 'In Progress', 'Pending'
+  final String? category; // Optional category
+  final String? details; // Optional details
+  final String? imagePath; // Optional image path
+
+  Grievance({
+    required this.id,
+    required this.title,
+    required this.date,
+    required this.status,
+    this.category,
+    this.details,
+    this.imagePath,
+  });
+}
 
 class GrievanceScreen extends StatefulWidget {
   const GrievanceScreen({super.key});
@@ -14,18 +39,52 @@ class GrievanceScreen extends StatefulWidget {
 
 class _GrievanceScreenState extends State<GrievanceScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  final List<Map<String, String>> _pastGrievances = [
-    {
-      'title': 'Issue with Attendance',
-      'date': '2024-01-15',
-      'status': 'Resolved'
-    },
-    {
-      'title': 'Problem with Course Material',
-      'date': '2024-01-10',
-      'status': 'In Progress'
-    },
+
+  // --- UPDATED: Use the Grievance class ---
+  final List<Grievance> _pastGrievances = [
+    Grievance(
+        id: '1',
+        title: 'Issue with Attendance',
+        date: DateTime(2024, 1, 15),
+        status: 'Resolved',
+        category: 'Attendance',
+        details: 'Marked absent on a day child was present.'),
+    Grievance(
+        id: '2',
+        title: 'Problem with Course Material',
+        date: DateTime(2024, 1, 10),
+        status: 'In Progress',
+        category: 'Academic',
+        details: 'Link for Physics Chapter 3 PDF is broken.'),
+    Grievance(
+      id: '3', // Added a pending example
+      title: 'Fee Payment Confirmation',
+      date: DateTime.now().subtract(const Duration(days: 1)),
+      status: 'Pending',
+      category: 'Payment',
+      details: 'Payment made via UPI, not reflecting in portal yet.',
+    )
   ];
+
+  // --- NEW: Method to add a grievance ---
+  void _addGrievance(Grievance grievance) {
+    setState(() {
+      _pastGrievances.insert(0, grievance);
+    });
+  }
+
+  // --- NEW: Method to navigate to chat ---
+  void _navigateToChat(Grievance grievance) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => GrievanceChatScreen(
+          // Pass the title to the chat screen
+          grievanceTitle: grievance.title, navigationSource: '',
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -40,11 +99,11 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
         title: const Text('Grievances',
             style:
                 TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
-        backgroundColor: const Color(0xFFF0F4F8),
-        elevation: 0,
+        backgroundColor: Colors.white, // Changed background
+        elevation: 1, // Added elevation
         centerTitle: true,
       ),
-      drawer: const ParentAppDrawer(),
+      drawer: ParentAppDrawer(), // Removed const
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20.0),
         child: Column(
@@ -53,7 +112,16 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
             const Text('Past Grievances',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
-            ..._pastGrievances.map((g) => _buildGrievanceCard(g)),
+            // --- UPDATED: Map over the Grievance objects ---
+            if (_pastGrievances.isEmpty)
+              const Center(
+                  child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 32.0),
+                child: Text('No grievances raised yet.',
+                    style: TextStyle(color: Colors.grey)),
+              ))
+            else
+              ..._pastGrievances.map((g) => _buildGrievanceCard(g)),
           ],
         ),
       ),
@@ -75,36 +143,73 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (BuildContext context) {
-        return const RaiseTicketModal();
+        // --- UPDATED: Pass the callback ---
+        return RaiseTicketModal(onAddGrievance: _addGrievance);
       },
     );
   }
 
-  Widget _buildGrievanceCard(Map<String, String> grievance) {
-    final bool isResolved = grievance['status'] == 'Resolved';
+  // --- UPDATED: Accepts Grievance object and handles tap ---
+  Widget _buildGrievanceCard(Grievance grievance) {
+    final bool isResolved = grievance.status == 'Resolved';
+    final bool canChat = !isResolved; // Enable chat if not resolved
+    final DateFormat formatter = DateFormat('MMM dd, yyyy');
+
+    Color statusColor;
+    Color statusBgColor;
+    switch (grievance.status) {
+      case 'Resolved':
+        statusColor = Colors.green.shade700;
+        statusBgColor = Colors.green.shade50;
+        break;
+      case 'In Progress':
+        statusColor = Colors.blue.shade700;
+        statusBgColor = Colors.blue.shade50;
+        break;
+      default: // Pending
+        statusColor = Colors.orange.shade700;
+        statusBgColor = Colors.orange.shade50;
+    }
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      elevation: 0,
+      elevation: 1, // Slightly raise card
+      shadowColor: Colors.black.withOpacity(0.1),
       color: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ListTile(
-        title: Text(grievance['title']!,
+        contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+        // --- NEW: Add onTap handler ---
+        onTap: canChat ? () => _navigateToChat(grievance) : null,
+        title: Text(grievance.title,
             style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text(grievance['date']!),
-        trailing: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: isResolved ? Colors.green[50] : Colors.orange[50],
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            grievance['status']!,
-            style: TextStyle(
-              color: isResolved ? Colors.green[700] : Colors.orange[700],
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
+        subtitle: Text(formatter.format(grievance.date)),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: statusBgColor,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                grievance.status,
+                style: TextStyle(
+                  color: statusColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
             ),
-          ),
+            // --- NEW: Show chat icon if applicable ---
+            if (canChat)
+              const Padding(
+                padding: EdgeInsets.only(left: 8.0),
+                child: Icon(Icons.chat_bubble_outline,
+                    color: Colors.blueAccent, size: 20),
+              ),
+          ],
         ),
       ),
     );
@@ -112,11 +217,13 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
 }
 
 // --------------------------------------------------------------------------
-// THIS CLASS WAS MISSING - IT IS NOW INCLUDED
+// Modal for raising a new ticket
 // --------------------------------------------------------------------------
-
 class RaiseTicketModal extends StatefulWidget {
-  const RaiseTicketModal({super.key});
+  // --- NEW: Callback for adding grievance ---
+  final Function(Grievance) onAddGrievance;
+
+  const RaiseTicketModal({super.key, required this.onAddGrievance});
 
   @override
   State<RaiseTicketModal> createState() => _RaiseTicketModalState();
@@ -126,14 +233,69 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
   String? _selectedCategory = 'Academic';
   File? _attachedImage;
   final ImagePicker _picker = ImagePicker();
+  final TextEditingController _titleController = TextEditingController();
+  final TextEditingController _detailsController = TextEditingController();
+  bool _isLoading = false;
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _detailsController.dispose();
+    super.dispose();
+  }
 
   Future<void> _pickImage(ImageSource source) async {
-    final XFile? pickedFile = await _picker.pickImage(source: source);
-    if (pickedFile != null) {
-      setState(() {
-        _attachedImage = File(pickedFile.path);
-      });
+    try {
+      final XFile? pickedFile = await _picker.pickImage(source: source);
+      if (pickedFile != null) {
+        setState(() {
+          _attachedImage = File(pickedFile.path);
+        });
+      }
+    } catch (e) {
+      print("Error picking image: $e");
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Failed to pick image.')));
     }
+  }
+
+  // --- NEW: Submit Handler ---
+  void _submitTicket() {
+    if (_titleController.text.trim().isEmpty ||
+        _selectedCategory == null ||
+        _detailsController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Please fill all required fields.'),
+          backgroundColor: Colors.red));
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    // Create Grievance object
+    final newGrievance = Grievance(
+      id: DateTime.now().millisecondsSinceEpoch.toString(), // Simple unique ID
+      title: _titleController.text.trim(),
+      date: DateTime.now(),
+      status: 'Pending', // New grievances start as Pending
+      category: _selectedCategory,
+      details: _detailsController.text.trim(),
+      imagePath: _attachedImage?.path, // Store image path if available
+    );
+
+    // Simulate API call
+    Future.delayed(const Duration(seconds: 1), () {
+      if (!mounted) return;
+
+      widget.onAddGrievance(newGrievance); // Call the callback
+
+      setState(() => _isLoading = false);
+      Navigator.pop(context); // Close modal
+
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Your grievance has been submitted.'),
+          backgroundColor: Colors.green));
+    });
   }
 
   @override
@@ -169,16 +331,19 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
                 ],
               ),
               const SizedBox(height: 20),
-              _buildTitleField(),
+              // --- UPDATED: Use controllers ---
+              _buildTitleField(_titleController),
               const SizedBox(height: 20),
               _buildDropdown(),
               const SizedBox(height: 20),
-              _buildDescriptionField(),
+              _buildDescriptionField(_detailsController),
               const SizedBox(height: 20),
               _buildAttachmentSection(),
               if (_attachedImage != null) _buildImagePreview(),
               const SizedBox(height: 30),
-              _buildSubmitButton(),
+              // --- UPDATED: Submit button ---
+              _buildSubmitButton(_isLoading, _submitTicket),
+              const SizedBox(height: 16), // Bottom padding
             ],
           ),
         ),
@@ -186,7 +351,8 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
     );
   }
 
-  Widget _buildTitleField() {
+  // --- UPDATED: Accept controller ---
+  Widget _buildTitleField(TextEditingController controller) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -194,6 +360,7 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
             style: TextStyle(fontWeight: FontWeight.w500)),
         const SizedBox(height: 8),
         TextField(
+          controller: controller, // Use controller
           decoration: InputDecoration(
             hintText: 'e.g., Unable to access course materials',
             fillColor: Colors.white,
@@ -202,6 +369,8 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
               borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide.none,
             ),
+            contentPadding:
+                const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
           ),
         ),
       ],
@@ -221,9 +390,14 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
             borderRadius: BorderRadius.circular(12),
           ),
           child: DropdownButtonFormField<String>(
-            value: _selectedCategory, // <- use 'value' instead of 'initialValue'
-            items: ['Academic', 'Payment', 'Attendance', 'TimeTable']
-                .map((String category) {
+            value: _selectedCategory,
+            items: [
+              'Academic',
+              'Payment',
+              'Attendance',
+              'Timetable', // Corrected typo
+              'Other' // Added Other
+            ].map((String category) {
               return DropdownMenuItem<String>(
                   value: category, child: Text(category));
             }).toList(),
@@ -242,8 +416,8 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
     );
   }
 
-
-  Widget _buildDescriptionField() {
+  // --- UPDATED: Accept controller ---
+  Widget _buildDescriptionField(TextEditingController controller) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -251,6 +425,7 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
             style: TextStyle(fontWeight: FontWeight.w500)),
         const SizedBox(height: 8),
         TextField(
+          controller: controller, // Use controller
           maxLines: 4,
           decoration: InputDecoration(
             hintText: 'Please describe the issue in detail...',
@@ -260,6 +435,8 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
               borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide.none,
             ),
+            contentPadding:
+                const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
           ),
         ),
       ],
@@ -270,7 +447,7 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Attachments',
+        const Text('Attachments (Optional)', // Made optional
             style: TextStyle(fontWeight: FontWeight.w500)),
         const SizedBox(height: 8),
         Row(
@@ -291,10 +468,11 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
   Widget _buildAttachmentButton(
       IconData icon, String label, VoidCallback onPressed) {
     return OutlinedButton.icon(
-      icon: Icon(icon),
+      icon: Icon(icon, size: 20), // Slightly smaller icon
       label: Text(label),
       onPressed: onPressed,
       style: OutlinedButton.styleFrom(
+        foregroundColor: Colors.grey[700],
         backgroundColor: Colors.white,
         padding: const EdgeInsets.symmetric(vertical: 12),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -311,35 +489,46 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(12),
-            child: Image.file(_attachedImage!, fit: BoxFit.cover),
+            // Limit preview height
+            child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 150),
+                child: Image.file(_attachedImage!, fit: BoxFit.cover)),
           ),
-          IconButton(
-            icon: const CircleAvatar(
+          InkWell(
+            // Make the close icon easier to tap
+            onTap: () => setState(() => _attachedImage = null),
+            child: const CircleAvatar(
+              radius: 12,
               backgroundColor: Colors.black54,
-              child: Icon(Icons.close, color: Colors.white, size: 16),
+              child: Icon(Icons.close, color: Colors.white, size: 14),
             ),
-            onPressed: () => setState(() => _attachedImage = null),
           )
         ],
       ),
     );
   }
 
-  Widget _buildSubmitButton() {
+  // --- UPDATED: Accept loading state and handler ---
+  Widget _buildSubmitButton(bool isLoading, VoidCallback onSubmit) {
     return ElevatedButton(
-      onPressed: () {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Your grievance has been submitted.')));
-      },
+      onPressed: isLoading ? null : onSubmit, // Use handler
       style: ElevatedButton.styleFrom(
         backgroundColor: Colors.blueAccent,
         minimumSize: const Size(double.infinity, 50),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
         ),
+        disabledBackgroundColor: Colors.grey.shade400,
       ),
-      child: const Text('Submit', style: TextStyle(color: Colors.white)),
+      child: isLoading
+          ? const SizedBox(
+              // Show loading indicator
+              height: 20,
+              width: 20,
+              child: CircularProgressIndicator(
+                  strokeWidth: 2, color: Colors.white))
+          : const Text('Submit',
+              style: TextStyle(color: Colors.white, fontSize: 16)),
     );
   }
 }

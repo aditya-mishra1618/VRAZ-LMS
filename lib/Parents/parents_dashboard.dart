@@ -7,6 +7,7 @@ import 'parent_app_drawer.dart';
 import 'parent_teacher_meeting_screen.dart';
 import 'payments_screen.dart';
 import 'results_screen.dart';
+import 'support_chat_screen.dart'; // Correct import
 import 'timetable_screen.dart';
 
 class ParentDashboardScreen extends StatefulWidget {
@@ -37,7 +38,7 @@ class _ParentDashboardScreenState extends State<ParentDashboardScreen> {
         elevation: 0,
         centerTitle: true,
       ),
-      drawer: const ParentAppDrawer(),
+      drawer: ParentAppDrawer(),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -85,7 +86,7 @@ class _ParentDashboardScreenState extends State<ParentDashboardScreen> {
               ),
               SizedBox(height: 4),
               Text(
-                'Manoj Sharma',
+                'Manoj Sharma', // Example Name
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 22,
@@ -103,38 +104,52 @@ class _ParentDashboardScreenState extends State<ParentDashboardScreen> {
       {
         'icon': Icons.chat_bubble_outline,
         'label': 'Grievance',
-        'colors': [Colors.lightBlue.shade100, Colors.lightBlue.shade200]
+        'colors': [Colors.lightBlue.shade100, Colors.lightBlue.shade200],
+        'screen': const GrievanceScreen(),
+      },
+      {
+        'icon': Icons.support_agent_outlined,
+        'label': 'Support Chat',
+        'colors': [Colors.cyan.shade100, Colors.cyan.shade200],
+        // --- FIX: Added required navigationSource argument ---
+        'screen': const GrievanceChatScreen(navigationSource: 'dashboard'),
       },
       {
         'icon': Icons.group_add_outlined,
         'label': 'Parent-Teacher Meeting',
-        'colors': [Colors.purple.shade100, Colors.purple.shade200]
+        'colors': [Colors.purple.shade100, Colors.purple.shade200],
+        'screen': const ParentTeacherMeetingScreen(),
       },
       {
         'icon': Icons.calendar_today_outlined,
         'label': 'Attendance Record',
-        'colors': [Colors.orange.shade100, Colors.orange.shade200]
+        'colors': [Colors.orange.shade100, Colors.orange.shade200],
+        'screen': const AttendanceReportScreen(),
       },
       {
         'icon': Icons.credit_card_outlined,
         'label': 'Payments Screen',
-        'colors': [Colors.green.shade100, Colors.green.shade200]
+        'colors': [Colors.green.shade100, Colors.green.shade200],
+        'screen': const PaymentsScreen(),
       },
       {
         'icon': Icons.emoji_events_outlined,
         'label': 'Results',
-        'colors': [Colors.blue.shade100, Colors.blue.shade200]
+        'colors': [Colors.blue.shade100, Colors.blue.shade200],
+        'screen': const ResultsScreen(),
       },
       {
         'icon': Icons.notifications_outlined,
         'label': 'Notifications',
         'colors': [Colors.red.shade100, Colors.red.shade200],
-        'badge': '3'
+        'badge': '3',
+        'screen': const NotificationsScreen(),
       },
       {
         'icon': Icons.schedule_outlined,
         'label': 'Timetable',
-        'colors': [Colors.deepPurple.shade100, Colors.deepPurple.shade200]
+        'colors': [Colors.deepPurple.shade100, Colors.deepPurple.shade200],
+        'screen': const TimetableScreen(),
       },
     ];
 
@@ -154,57 +169,25 @@ class _ParentDashboardScreenState extends State<ParentDashboardScreen> {
           item['icon'] as IconData,
           item['label'] as String,
           item['colors'] as List<Color>,
+          item['screen'] as Widget?,
           badge: item['badge'] as String?,
         );
       },
     );
   }
 
-  Widget _buildGridItem(IconData icon, String label, List<Color> colors,
+  Widget _buildGridItem(
+      IconData icon, String label, List<Color> colors, Widget? screen,
       {String? badge}) {
     return InkWell(
-      onTap: () {
-        // This navigation logic remains the same
-        if (label == 'Grievance') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const GrievanceScreen()),
-          );
-        } else if (label == 'Parent-Teacher Meeting') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-                builder: (context) => const ParentTeacherMeetingScreen()),
-          );
-        } else if (label == 'Attendance Record') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-                builder: (context) => const AttendanceReportScreen()),
-          );
-        } else if (label == 'Payments Screen') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const PaymentsScreen()),
-          );
-        } else if (label == 'Results') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const ResultsScreen()),
-          );
-        } else if (label == 'Notifications') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-                builder: (context) => const NotificationsScreen()),
-          );
-        } else if (label == 'Timetable') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const TimetableScreen()),
-          );
-        }
-      },
+      onTap: screen == null
+          ? null
+          : () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => screen),
+              );
+            },
       borderRadius: BorderRadius.circular(20),
       child: Container(
         decoration: BoxDecoration(
@@ -229,6 +212,7 @@ class _ParentDashboardScreenState extends State<ParentDashboardScreen> {
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: Colors.black.withOpacity(0.8),
+                      fontSize: 14,
                     ),
                   ),
                 ],

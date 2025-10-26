@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:vraz_application/home_screen.dart';
 
 import 'attendance_report_screen.dart';
-import 'grievance_chat_screen.dart';
 import 'grievance_screen.dart';
 import 'notifications_screen.dart';
 import 'parent_teacher_meeting_screen.dart';
 import 'parents_dashboard.dart';
 import 'payments_screen.dart';
 import 'results_screen.dart';
+import 'support_chat_screen.dart';
 import 'timetable_screen.dart';
 
 class ParentAppDrawer extends StatelessWidget {
@@ -49,7 +49,10 @@ class ParentAppDrawer extends StatelessWidget {
             context: context,
             icon: Icons.support_agent_outlined,
             text: 'Support Chat',
-            screen: const GrievanceChatScreen(grievanceTitle: 'Support Chat'),
+            screen: const GrievanceChatScreen(
+              grievanceTitle: 'Support Chat',
+              navigationSource: '',
+            ),
           ),
           _buildDrawerItem(
             context: context,
