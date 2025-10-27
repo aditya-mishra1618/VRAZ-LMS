@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-// --- IMPORTS ---
-import '../teacher_session_manager.dart';
-import 'models/manage_attendance_model.dart';
-import 'services/manage_attendance_service.dart';
+// Import necessary files (adjust paths)
+import '../teacher_session_manager.dart'; // To get auth token
+import 'models/manage_attendance_model.dart'; // Student attendance model
+import 'models/timetable_model.dart'; // Timetable Entry model (TeacherTimetableEntry)
+import 'services/manage_attendance_service.dart'; // Attendance API calls
+import 'services/timetable_api_service.dart'; // Timetable API calls
 import 'teacher_app_drawer.dart';
 
 class ManageAttendanceScreen extends StatefulWidget {
-  // This constructor is already const, which is correct
   const ManageAttendanceScreen({super.key});
 
   @override
@@ -16,87 +17,309 @@ class ManageAttendanceScreen extends StatefulWidget {
 }
 
 class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
-  // --- STATE VARIABLES ---
-  String? _selectedClass = '11th JEE MAINS';
-  DateTime _selectedDate = DateTime.now();
-  final String _currentSessionId = '171';
-  final List<String> _classOptions = const [
-    '11th JEE MAINS',
-    '12th JEE MAINS',
-    '11th JEE ADV',
-    '12th JEE ADV',
-  ];
-
+  // Services
   final AttendanceService _attendanceService = AttendanceService();
-  final TeacherSessionManager _sessionManager = TeacherSessionManager();
+  late TeacherTimetableService
+      _timetableService; // Initialize in initState/fetch
 
+  // State
   String? _authToken;
+  // Initialize _selectedDate later based on fetched data
+  late DateTime _selectedDate;
+  List<TeacherTimetableEntry> _allFetchedSessions = []; // Store weekly sessions
+  List<TeacherTimetableEntry> _sessionsForSelectedDay =
+      []; // Filtered for dropdown
+  int? _selectedSessionId; // Store the ID (int) of the selected session
+  TeacherTimetableEntry? _selectedSessionEntry; // Store the full selected entry
 
-  // Data and UI state
-  List<StudentAttendanceModel> _students = [];
-  bool _isLoading = true;
+  List<StudentAttendanceModel> _students = []; // Attendance sheet data
+  bool _isLoadingSessions = true;
+  bool _isLoadingAttendance = false; // Separate loading for attendance sheet
   bool _isSubmitting = false;
   String? _errorMessage;
+  DateTime? _currentFetchedWeekStart; // To track which week's data we have
 
-  // --- LIFECYCLE & DATA FETCHING ---
   @override
   void initState() {
     super.initState();
-    _initializeAndFetchData();
+    // Don't set _selectedDate here initially
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initializeAndFetchData();
+    });
   }
 
+  // Get token and fetch initial schedule + attendance
   Future<void> _initializeAndFetchData() async {
-    try {
-      final session = await _sessionManager.getSession();
+    // Set initial date to today, will be corrected after fetch
+    _selectedDate = DateTime.now();
 
-      if (session == null || session['token'] == null) {
-        throw Exception("Authentication token not found. Please log in again.");
-      }
+    final sessionManager = TeacherSessionManager();
+    final session = await sessionManager.getSession();
 
-      _authToken = session['token'] as String;
-
-      if (_authToken!.isEmpty) {
-        throw Exception("Authentication token is empty. Please log in again.");
-      }
-
-      await _fetchAttendanceData();
-    } catch (e) {
+    if (session == null ||
+        session['token'] == null ||
+        (session['token'] as String).isEmpty) {
       if (mounted) {
         setState(() {
-          _errorMessage = e.toString();
-          _isLoading = false;
+          _errorMessage =
+              "Authentication token not found. Please log in again.";
+          _isLoadingSessions = false;
         });
       }
+      return;
     }
+    _authToken = session['token'] as String;
+    _timetableService = TeacherTimetableService(
+        token: _authToken!); // Initialize service with token
+
+    print('Manage Attendance: Auth Token found.');
+    // Fetch schedule for the week containing the initial _selectedDate
+    await _fetchScheduleForWeek(_selectedDate, fetchFirstAttendance: true);
   }
 
-  Future<void> _fetchAttendanceData() async {
+  // Fetch schedule for the week containing the given date
+  Future<void> _fetchScheduleForWeek(DateTime dateInWeek,
+      {bool fetchFirstAttendance = false}) async {
+    if (_authToken == null) return;
+
+    final weekDates = _getWeekStartAndEnd(dateInWeek);
+    // Avoid refetching if we already have data for this week
+    if (weekDates.$1 == _currentFetchedWeekStart && !fetchFirstAttendance) {
+      print('Already have schedule for this week. Filtering.');
+      _filterSessionsForDate(_selectedDate); // Just filter
+      // Fetch attendance only if a lecture session is now selected and students aren't loaded
+      if (_selectedSessionEntry?.type == 'LECTURE' &&
+          _selectedSessionId != null &&
+          _students.isEmpty &&
+          !_isLoadingAttendance) {
+        await _fetchAttendanceData(_selectedSessionId!);
+      } else if (_selectedSessionEntry?.type != 'LECTURE') {
+        // Clear students if a non-lecture is selected
+        if (mounted)
+          setState(() {
+            _students = [];
+            _isLoadingAttendance = false;
+          });
+      }
+      return;
+    }
+
     setState(() {
-      _isLoading = true;
+      _isLoadingSessions = true;
       _errorMessage = null;
+      _sessionsForSelectedDay = []; // Clear dropdown
+      _students = []; // Clear student list
+      _selectedSessionId = null; // Clear selection
+      _selectedSessionEntry = null;
     });
 
     try {
-      final students = await _attendanceService.getAttendanceSheet(
-          _currentSessionId, _authToken!);
+      final startDateStr = DateFormat('yyyy-MM-dd').format(weekDates.$1);
+      final endDateStr = DateFormat('yyyy-MM-dd').format(weekDates.$2);
+
+      _allFetchedSessions = await _timetableService.fetchTimetable(
+        startDate: startDateStr,
+        endDate: endDateStr,
+      );
+      _currentFetchedWeekStart = weekDates.$1; // Update tracked week
+
+      // --- **NEW LOGIC: Set initial date based on fetched data** ---
+      DateTime initialDisplayDate =
+          weekDates.$1; // Default to Monday of the fetched week
+      if (_allFetchedSessions.isNotEmpty) {
+        // Find the earliest day in the fetched sessions
+        _allFetchedSessions.sort((a, b) => a.startTime.compareTo(b.startTime));
+        // Use the date part of the earliest session
+        initialDisplayDate = DateTime(
+            _allFetchedSessions.first.startTime.year,
+            _allFetchedSessions.first.startTime.month,
+            _allFetchedSessions.first.startTime.day);
+        print(
+            'Setting initial display date to first session date: ${DateFormat('yyyy-MM-dd').format(initialDisplayDate)}');
+      } else {
+        print(
+            'No sessions found in fetched week. Defaulting display date to Monday: ${DateFormat('yyyy-MM-dd').format(initialDisplayDate)}');
+      }
+      // Set the _selectedDate state variable *before* filtering
+      _selectedDate = initialDisplayDate;
+      // --- **END NEW LOGIC** ---
+
+      _filterSessionsForDate(
+          _selectedDate); // Filter for the determined initial day
+
+      // Automatically fetch attendance for the first LECTURE session of the day
+      if (fetchFirstAttendance &&
+          _selectedSessionEntry?.type == 'LECTURE' &&
+          _selectedSessionId != null) {
+        await _fetchAttendanceData(_selectedSessionId!);
+      } else {
+        // If no session selected or it's not a lecture, stop loading attendance
+        if (mounted) {
+          setState(() => _isLoadingAttendance = false);
+        }
+      }
 
       if (mounted) {
         setState(() {
-          _students = students;
-          _isLoading = false;
+          _isLoadingSessions = false;
         });
       }
     } catch (e) {
+      print('Error fetching schedule: $e');
       if (mounted) {
         setState(() {
-          _errorMessage = e.toString();
-          _isLoading = false;
+          _errorMessage = e.toString().replaceAll('Exception: ', '');
+          _isLoadingSessions = false;
+          _isLoadingAttendance =
+              false; // Ensure attendance loading stops on schedule error
         });
       }
     }
   }
 
-  // --- ATTENDANCE LOGIC ---
+  // Filter sessions for the selected date
+  void _filterSessionsForDate(DateTime date) {
+    // Normalize the selected date to midnight for accurate comparison
+    final selectedDayStart = DateTime(date.year, date.month, date.day);
+
+    setState(() {
+      _sessionsForSelectedDay = _allFetchedSessions.where((session) {
+        try {
+          // Normalize session start time to midnight (local time) for comparison
+          final sessionDate = DateTime(session.startTime.year,
+              session.startTime.month, session.startTime.day);
+          // Check if session date matches selected date AND is Lecture or Availability Slot
+          return sessionDate.isAtSameMomentAs(selectedDayStart) &&
+              (session.type == 'LECTURE' ||
+                  session.type == 'AVAILABILITY_SLOT');
+        } catch (e) {
+          print("Error processing session date: ${session.id} - $e");
+          return false;
+        }
+      }).toList();
+
+      _sessionsForSelectedDay
+          .sort((a, b) => a.startTime.compareTo(b.startTime));
+
+      _selectedSessionEntry = _sessionsForSelectedDay.isNotEmpty
+          ? _sessionsForSelectedDay.first
+          : null;
+      _selectedSessionId = _selectedSessionEntry?.sessionId;
+
+      if (_selectedSessionEntry == null ||
+          _selectedSessionEntry!.type != 'LECTURE') {
+        _students = [];
+        _isLoadingAttendance = false;
+      }
+
+      print(
+          'Filtered sessions for ${DateFormat('yyyy-MM-dd').format(date)}: ${_sessionsForSelectedDay.length}');
+      print('Selected Session ID set to: $_selectedSessionId');
+      print('Selected Session Type: ${_selectedSessionEntry?.type}');
+    });
+  }
+
+  // Fetch attendance sheet for a specific session ID
+  Future<void> _fetchAttendanceData(int sessionId) async {
+    if (_authToken == null) return;
+
+    if (_selectedSessionEntry?.type != 'LECTURE' ||
+        _selectedSessionEntry?.sessionId != sessionId) {
+      print(
+          "Attempted to fetch attendance for a non-lecture or mismatched session. Skipping.");
+      if (mounted)
+        setState(() {
+          _isLoadingAttendance = false;
+          _students = [];
+        });
+      return;
+    }
+
+    setState(() {
+      _isLoadingAttendance = true;
+      _students = [];
+      _errorMessage = null; // Clear attendance-specific errors
+    });
+
+    try {
+      final studentsData = await _attendanceService.getAttendanceSheet(
+          sessionId.toString(), _authToken!);
+      if (mounted) {
+        if (_selectedSessionId == sessionId) {
+          // Check if selection changed during fetch
+          setState(() {
+            _students = studentsData;
+            _isLoadingAttendance = false;
+          });
+        } else {
+          print("Session changed during attendance fetch. Discarding results.");
+          if (mounted)
+            setState(() {
+              _isLoadingAttendance = false;
+            });
+        }
+      }
+    } catch (e) {
+      print('Error fetching attendance data: $e');
+      if (mounted) {
+        if (_selectedSessionId == sessionId) {
+          // Check if selection changed during fetch error
+          setState(() {
+            _errorMessage =
+                "Attendance: ${e.toString().replaceAll('Exception: ', '')}";
+            _isLoadingAttendance = false;
+          });
+        } else {
+          print(
+              "Session changed during attendance fetch error. Discarding error message.");
+          if (mounted)
+            setState(() {
+              _isLoadingAttendance = false;
+            });
+        }
+      }
+    }
+  }
+
+  // Date Navigation
+  void _changeDate(int days) async {
+    final newDate = _selectedDate.add(Duration(days: days));
+    // Store previous selection before clearing
+    TeacherTimetableEntry? previousSelectedEntry = _selectedSessionEntry;
+
+    setState(() {
+      _selectedDate = newDate;
+      _students = [];
+      // Set loading true only if we expect to fetch attendance
+      _isLoadingAttendance = true; // Assume true initially
+      _errorMessage = null;
+      _selectedSessionId = null;
+      _selectedSessionEntry = null;
+    });
+
+    final newWeekStartDate = _getWeekStartAndEnd(newDate).$1;
+
+    if (newWeekStartDate != _currentFetchedWeekStart ||
+        _currentFetchedWeekStart == null) {
+      print('Week changed or initial load. Fetching schedule.');
+      await _fetchScheduleForWeek(newDate, fetchFirstAttendance: true);
+    } else {
+      print('Same week. Filtering sessions.');
+      _filterSessionsForDate(newDate);
+      if (_selectedSessionEntry?.type == 'LECTURE' &&
+          _selectedSessionId != null) {
+        // Only fetch attendance if the newly filtered selection is a lecture
+        await _fetchAttendanceData(_selectedSessionId!);
+      } else {
+        if (mounted) {
+          // If no sessions or not a lecture, explicitly stop loading attendance
+          setState(() => _isLoadingAttendance = false);
+        }
+      }
+    }
+  }
+
+  // --- Attendance Logic (remains the same) ---
   int get _totalStudents => _students.length;
   int get _presentCount => _students.where((s) => s.status == 'P').length;
   int get _absentCount => _students.where((s) => s.status == 'A').length;
@@ -117,57 +340,83 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
     });
   }
 
+  // --- Save Attendance (remains the same) ---
   Future<void> _saveAttendance() async {
+    // Can only save for lectures
+    if (_selectedSessionEntry?.type != 'LECTURE' ||
+        _selectedSessionId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Attendance can only be saved for lecture sessions.'),
+            backgroundColor: Colors.orange),
+      );
+      return;
+    }
     if (_authToken == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Error: Not authenticated. Please log in again.'),
-          backgroundColor: Colors.red,
-        ),
+            content: Text('Authentication error.'),
+            backgroundColor: Colors.red),
       );
       return;
     }
 
-    setState(() {
-      _isSubmitting = true;
-    });
+    setState(() => _isSubmitting = true);
 
     try {
       final successMessage = await _attendanceService.markAttendance(
-        sessionId: _currentSessionId,
+        sessionId: _selectedSessionId!.toString(),
         students: _students,
         authToken: _authToken!,
       );
-
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(successMessage),
-            backgroundColor: Colors.green,
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(successMessage), backgroundColor: Colors.green));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to save: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                'Failed to save: ${e.toString().replaceAll('Exception: ', '')}'),
+            backgroundColor: Colors.red));
       }
     } finally {
       if (mounted) {
-        setState(() {
-          _isSubmitting = false;
-        });
+        setState(() => _isSubmitting = false);
       }
     }
   }
 
-  // --- UI WIDGETS (const added) ---
+  // Helper to get Monday (start) and Sunday (end) of the week
+  (DateTime, DateTime) _getWeekStartAndEnd(DateTime date) {
+    final daysToSubtract = date.weekday - DateTime.monday;
+    final monday = DateTime(date.year, date.month, date.day)
+        .subtract(Duration(days: daysToSubtract));
+    final sunday = monday
+        .add(const Duration(days: 6, hours: 23, minutes: 59, seconds: 59));
+    return (monday, sunday);
+  }
+
+  // --- UI WIDGETS ---
   @override
   Widget build(BuildContext context) {
+    // Show initial loading screen until token and first schedule are fetched
+    if (_authToken == null && _isLoadingSessions) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Manage Attendance')),
+        drawer: const TeacherAppDrawer(),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+    // Show error if token couldn't be loaded
+    if (_authToken == null && _errorMessage != null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Manage Attendance')),
+        drawer: const TeacherAppDrawer(),
+        body: Center(child: Text('Error: $_errorMessage')),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF0F4F8),
       drawer: const TeacherAppDrawer(),
@@ -181,64 +430,239 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
       ),
       body: Stack(
         children: [
-          _buildBodyContent(),
+          Column(
+            children: [
+              _buildSessionDropdown(), // Dropdown at the top
+              const SizedBox(height: 16),
+              _buildDateNavigation(),
+              const SizedBox(height: 16),
+              Expanded(child: _buildBodyContent()), // Scrollable content below
+            ],
+          ),
           Positioned(
+            // Save button overlay remains at bottom
             left: 0,
             right: 0,
             bottom: 0,
             child: _buildSaveButton(),
           ),
-          if (_isSubmitting)
+          if (_isSubmitting) // Submission overlay remains the same
             Container(
-              // <-- Added const
               color: Colors.black.withOpacity(0.3),
               child: const Center(
-                // <-- Added const
-                child: Card(
-                  // <-- Added const
-                  elevation: 4,
-                  child: Padding(
-                    // <-- Added const
-                    padding: EdgeInsets.all(24.0),
-                    child: Column(
-                      // <-- Added const
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CircularProgressIndicator(),
-                        SizedBox(height: 16), // <-- Added const
-                        Text("Submitting Attendance..."), // <-- Added const
-                      ],
-                    ),
-                  ),
-                ),
-              ),
+                  child: Card(
+                      elevation: 4,
+                      child: Padding(
+                          padding: EdgeInsets.all(24.0),
+                          child:
+                              Column(mainAxisSize: MainAxisSize.min, children: [
+                            CircularProgressIndicator(),
+                            SizedBox(height: 16),
+                            Text("Submitting Attendance...")
+                          ])))),
             ),
         ],
       ),
     );
   }
 
+  // Session Dropdown (Shows only Title)
+  Widget _buildSessionDropdown() {
+    if (_isLoadingSessions) {
+      return const Padding(
+        padding: EdgeInsets.fromLTRB(16.0, 20.0, 16.0, 12.0),
+        child: Center(
+            child: Text("Loading sessions...",
+                style: TextStyle(color: Colors.grey))),
+      );
+    }
+    // Show specific error if schedule loading failed
+    if (_errorMessage != null &&
+        _sessionsForSelectedDay.isEmpty &&
+        !_isLoadingSessions &&
+        !_errorMessage!.startsWith("Attendance:")) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 0.0),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+          decoration: BoxDecoration(
+              color: Colors.red.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.red.shade200)),
+          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Expanded(
+                child: Text("Error loading schedule: $_errorMessage",
+                    style: const TextStyle(color: Colors.red),
+                    textAlign: TextAlign.center))
+          ]),
+        ),
+      );
+    }
+
+    // Show message if no sessions found for the day
+    if (_sessionsForSelectedDay.isEmpty && !_isLoadingSessions) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 0.0),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+          decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade300)),
+          child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text("No sessions scheduled for this day",
+                    style: TextStyle(color: Colors.grey))
+              ]),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 0.0),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.shade300)),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<String?>(
+            // Value is the session String ID
+            isExpanded: true,
+            value: _selectedSessionEntry?.id, // Use the unique String ID
+            hint: const Text("Select a Session"),
+            icon: _isLoadingAttendance
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.keyboard_arrow_down),
+            style: const TextStyle(
+                color: Colors.black87,
+                fontWeight: FontWeight.bold,
+                fontSize: 16),
+            onChanged: _isLoadingAttendance || _isSubmitting
+                ? null
+                : (String? newId) {
+                    if (newId != null && newId != _selectedSessionEntry?.id) {
+                      final newEntry = _sessionsForSelectedDay
+                          .firstWhere((e) => e.id == newId);
+                      print(
+                          "Dropdown changed: New Session ID = ${newEntry.sessionId}, Type = ${newEntry.type}");
+                      setState(() {
+                        _selectedSessionEntry = newEntry;
+                        _selectedSessionId = newEntry.sessionId;
+                        _students = []; // Clear students when changing session
+                        _errorMessage = null; // Clear previous errors
+                      });
+                      if (newEntry.type == 'LECTURE' &&
+                          newEntry.sessionId != null) {
+                        _fetchAttendanceData(newEntry.sessionId!);
+                      } else {
+                        // If not a lecture, ensure loading state is false and students are empty
+                        setState(() => _isLoadingAttendance = false);
+                      }
+                    }
+                  },
+            items: _sessionsForSelectedDay
+                .map<DropdownMenuItem<String?>>((TeacherTimetableEntry entry) {
+              // Display only the session title
+              final String displayTitle = entry.title;
+
+              final isLecture = entry.type == 'LECTURE';
+              final titleStyle = TextStyle(
+                  color: isLecture ? Colors.black87 : Colors.grey.shade700,
+                  fontSize: 16);
+
+              return DropdownMenuItem<String?>(
+                value: entry.id, // Use the unique String ID
+                enabled: true,
+                child: Text(
+                  displayTitle, // Use the title only
+                  overflow: TextOverflow.ellipsis,
+                  style: titleStyle,
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Main content area below dropdown and date navigator
   Widget _buildBodyContent() {
-    if (_isLoading) {
+    if (_isLoadingSessions) {
+      // If still loading schedule, show nothing here
+      return Container();
+    }
+    // Show error if schedule loading failed and list is still empty
+    if (_errorMessage != null &&
+        _sessionsForSelectedDay.isEmpty &&
+        !_isLoadingSessions &&
+        !_errorMessage!.startsWith("Attendance:")) {
+      return Container(); // Error is shown above dropdown
+    }
+
+    if (_selectedSessionEntry == null &&
+        _sessionsForSelectedDay.isEmpty &&
+        !_isLoadingSessions) {
+      // Message already shown in dropdown area if no sessions
+      return Container();
+    }
+    if (_selectedSessionEntry == null &&
+        _sessionsForSelectedDay.isNotEmpty &&
+        !_isLoadingSessions) {
+      return const Center(
+          child: Text("Please select a session from the dropdown."));
+    }
+
+    // Show message for non-lecture sessions
+    if (_selectedSessionEntry != null &&
+        _selectedSessionEntry!.type != 'LECTURE') {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Text(
+            "Attendance is only available for 'LECTURE' sessions.\nSelected: ${_selectedSessionEntry!.title} (${_selectedSessionEntry!.type})",
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 16, color: Colors.grey),
+          ),
+        ),
+      );
+    }
+
+    // Show loading indicator for attendance fetching (only applies to lectures now)
+    if (_isLoadingAttendance) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (_errorMessage != null) {
+    // Show error message if attendance fetch failed (and list is empty)
+    if (_errorMessage != null &&
+        _students.isEmpty &&
+        _selectedSessionId != null) {
       return Center(
         child: Padding(
-          padding: const EdgeInsets.all(16.0), // <-- Added const
+          padding: const EdgeInsets.all(16.0),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              const Icon(Icons.error_outline, color: Colors.red, size: 40),
+              const SizedBox(height: 8),
               Text(
-                'Error: $_errorMessage',
-                style: const TextStyle(color: Colors.red), // <-- Added const
+                '$_errorMessage', // Show full error message
+                style: const TextStyle(color: Colors.red),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 16), // <-- Added const
+              const SizedBox(height: 16),
               ElevatedButton(
-                onPressed: _initializeAndFetchData,
-                child: const Text('Retry'), // <-- Added const
+                // Retry only if it's an attendance error
+                onPressed: _errorMessage!.startsWith("Attendance:")
+                    ? () => _fetchAttendanceData(_selectedSessionId!)
+                    : null,
+                child: const Text('Retry'),
               )
             ],
           ),
@@ -246,109 +670,72 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
       );
     }
 
-    if (_students.isEmpty) {
+    // Show message if session is selected but no students found
+    if (_students.isEmpty &&
+        _selectedSessionId != null &&
+        !_isLoadingAttendance) {
       return const Center(
-        // <-- Added const
         child: Text(
-          // <-- Added const
-          'No students found for this session.',
-          style: TextStyle(fontSize: 16, color: Colors.grey), // <-- Added const
+          'No students enrolled in this lecture session.', // More specific message
+          style: TextStyle(fontSize: 16, color: Colors.grey),
         ),
       );
     }
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.only(
-          bottom: 100, left: 16, right: 16, top: 8), // <-- Added const
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildClassDropdown(),
-          const SizedBox(height: 16), // <-- Added const
-          _buildDateNavigation(),
-          const SizedBox(height: 24), // <-- Added const
-          _buildAttendanceSummary(),
-          const SizedBox(height: 24), // <-- Added const
-          const Text('Student List', // <-- Added const
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12), // <-- Added const
-          _buildMarkAllPresentButton(),
-          const SizedBox(height: 20), // <-- Added const
-          ..._students.map((student) => _buildStudentCard(student)).toList(),
-        ],
-      ),
-    );
+    // Display attendance list (only if _students is not empty)
+    if (_students.isNotEmpty) {
+      return SingleChildScrollView(
+        padding: const EdgeInsets.only(bottom: 90, left: 16, right: 16, top: 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildAttendanceSummary(),
+            const SizedBox(height: 24),
+            const Text('Student List',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            _buildMarkAllPresentButton(),
+            const SizedBox(height: 20),
+            ..._students.map((student) => _buildStudentCard(student)).toList(),
+          ],
+        ),
+      );
+    }
+
+    // Fallback if none of the above conditions met
+    return Container();
   }
 
-  Widget _buildClassDropdown() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16), // <-- Added const
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade300),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          isExpanded: true,
-          value: _selectedClass,
-          icon: const Icon(Icons.keyboard_arrow_down), // <-- Added const
-          style: const TextStyle(
-              // <-- Added const
-              color: Colors.black87,
-              fontWeight: FontWeight.bold,
-              fontSize: 16),
-          onChanged: (String? newValue) {
-            setState(() {
-              _selectedClass = newValue;
-            });
-          },
-          items: _classOptions.map<DropdownMenuItem<String>>((String value) {
-            return DropdownMenuItem<String>(
-              value: value,
-              child: Text(value),
-            );
-          }).toList(),
-        ),
-      ),
-    );
-  }
+  // --- Other build methods remain unchanged ---
 
   Widget _buildDateNavigation() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        IconButton(
-          icon: const Icon(Icons.arrow_back_ios, size: 20), // <-- Added const
-          onPressed: () {
-            setState(() {
-              _selectedDate = _selectedDate
-                  .subtract(const Duration(days: 1)); // <-- Added const
-            });
-          },
-        ),
-        Expanded(
-          child: Center(
-            child: Text(
-              DateFormat('MMMM d, yyyy').format(_selectedDate),
-              style: const TextStyle(
-                  fontSize: 18, fontWeight: FontWeight.bold), // <-- Added const
+    final String displayDate = DateFormat('MMMM d, yyyy').format(_selectedDate);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.arrow_back_ios, size: 20),
+            onPressed: _isLoadingSessions || _isSubmitting
+                ? null
+                : () => _changeDate(-1),
+          ),
+          Expanded(
+            child: Center(
+              child: Text(displayDate,
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.bold)),
             ),
           ),
-        ),
-        IconButton(
-          icon:
-              const Icon(Icons.arrow_forward_ios, size: 20), // <-- Added const
-          onPressed: () {
-            if (!DateUtils.isSameDay(_selectedDate, DateTime.now())) {
-              setState(() {
-                _selectedDate = _selectedDate
-                    .add(const Duration(days: 1)); // <-- Added const
-              });
-            }
-          },
-        ),
-      ],
+          IconButton(
+            icon: const Icon(Icons.arrow_forward_ios, size: 20),
+            onPressed: _isLoadingSessions || _isSubmitting
+                ? null
+                : () => _changeDate(1),
+          ),
+        ],
+      ),
     );
   }
 
@@ -367,29 +754,26 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
   Widget _buildSummaryCard(String title, int count, Color color) {
     return Expanded(
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4), // <-- Added const
-        padding: const EdgeInsets.all(12), // <-- Added const
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.3)),
-        ),
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: color.withOpacity(0.3)),
+            boxShadow: [
+              BoxShadow(
+                  color: Colors.grey.withOpacity(0.05),
+                  blurRadius: 3,
+                  offset: const Offset(0, 1))
+            ]),
         child: Column(
           children: [
-            Text(
-              title,
-              style: const TextStyle(
-                  color: Colors.grey, fontSize: 14), // <-- Added const
-            ),
-            const SizedBox(height: 4), // <-- Added const
-            Text(
-              '$count',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
-            ),
+            Text(title,
+                style: const TextStyle(color: Colors.grey, fontSize: 14)),
+            const SizedBox(height: 4),
+            Text('$count',
+                style: TextStyle(
+                    fontSize: 24, fontWeight: FontWeight.bold, color: color)),
           ],
         ),
       ),
@@ -400,39 +784,39 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
     return SizedBox(
       width: double.infinity,
       child: OutlinedButton(
-        onPressed: _markAllPresent,
+        // Disable if not a lecture or loading/submitting/no students
+        onPressed: _selectedSessionEntry?.type != 'LECTURE' ||
+                _isLoadingAttendance ||
+                _isSubmitting ||
+                _students.isEmpty
+            ? null
+            : _markAllPresent,
         style: OutlinedButton.styleFrom(
           backgroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(vertical: 15), // <-- Added const
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
+          padding: const EdgeInsets.symmetric(vertical: 15),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           side: BorderSide(color: Colors.blue.shade200),
         ),
-        child: const Text(
-          // <-- Added const
-          'Mark All Present',
-          style:
-              TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold),
-        ),
+        child: const Text('Mark All Present',
+            style: TextStyle(
+                color: Colors.blueAccent, fontWeight: FontWeight.bold)),
       ),
     );
   }
 
   Widget _buildStudentCard(StudentAttendanceModel student) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12), // <-- Added const
-      padding: const EdgeInsets.symmetric(
-          vertical: 10, horizontal: 8), // <-- Added const
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 5,
-            offset: const Offset(0, 2), // <-- Added const
-          ),
+              color: Colors.grey.withOpacity(0.1),
+              blurRadius: 5,
+              offset: const Offset(0, 2))
         ],
       ),
       child: Row(
@@ -441,28 +825,19 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
           Row(
             children: [
               const CircleAvatar(
-                // <-- Added const
-                radius: 20,
-                backgroundImage:
-                    AssetImage('assets/profile_dummy.png'), // Placeholder image
-                backgroundColor: Colors.grey,
-              ),
-              const SizedBox(width: 12), // <-- Added const
+                  radius: 20,
+                  backgroundImage: AssetImage('assets/profile_dummy.png'),
+                  backgroundColor: Colors.grey),
+              const SizedBox(width: 12),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Text(student.fullName,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 16)),
                   Text(
-                    student.fullName,
-                    style: const TextStyle(
-                        // <-- Added const
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16),
-                  ),
-                  Text(
-                    'ID: ${student.studentId.length > 8 ? student.studentId.substring(0, 8) : student.studentId}...',
-                    style: const TextStyle(
-                        color: Colors.grey, fontSize: 14), // <-- Added const
-                  ),
+                      'ID: ${student.studentId.length > 8 ? student.studentId.substring(0, 8) : student.studentId}...',
+                      style: const TextStyle(color: Colors.grey, fontSize: 14)),
                 ],
               ),
             ],
@@ -483,58 +858,57 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
       String status, StudentAttendanceModel student, Color color) {
     final bool isSelected = student.status == status;
     return GestureDetector(
-      onTap: () => _updateAttendanceStatus(student, status),
+      onTap:
+          _isSubmitting ? null : () => _updateAttendanceStatus(student, status),
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4), // <-- Added const
+        margin: const EdgeInsets.symmetric(horizontal: 4),
         width: 35,
         height: 35,
         decoration: BoxDecoration(
-          color: isSelected ? color : color.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(8),
-          border: isSelected ? Border.all(color: color, width: 2) : null,
-        ),
+            color: isSelected ? color : color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+            border: isSelected ? Border.all(color: color, width: 2) : null),
         alignment: Alignment.center,
-        child: Text(
-          status,
-          style: TextStyle(
-            color: isSelected ? Colors.white : color,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+        child: Text(status,
+            style: TextStyle(
+                color: isSelected ? Colors.white : color,
+                fontWeight: FontWeight.bold)),
       ),
     );
   }
 
   Widget _buildSaveButton() {
+    // Disable save if not a lecture
+    final bool canSave = _selectedSessionEntry?.type == 'LECTURE';
     return Container(
-      padding: const EdgeInsets.all(16), // <-- Added const
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, -5), // <-- Added const
-          ),
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 10,
+              offset: const Offset(0, -5))
         ],
       ),
       child: ElevatedButton.icon(
-        onPressed: _isSubmitting || _isLoading ? null : _saveAttendance,
-        icon: const Icon(Icons.check_circle_outline,
-            color: Colors.white), // <-- Added const
-        label: Text(
-          _isSubmitting ? 'Saving...' : 'Save Attendance',
-          style: const TextStyle(
-              fontSize: 18, color: Colors.white), // <-- Added const
-        ),
+        onPressed: !canSave ||
+                _isLoadingSessions ||
+                _isLoadingAttendance ||
+                _isSubmitting ||
+                _students.isEmpty
+            ? null
+            : _saveAttendance,
+        icon: const Icon(Icons.check_circle_outline, color: Colors.white),
+        label: Text(_isSubmitting ? 'Saving...' : 'Save Attendance',
+            style: const TextStyle(fontSize: 18, color: Colors.white)),
         style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.blueAccent,
-          minimumSize: const Size(double.infinity, 50),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
+            backgroundColor: Colors.blueAccent,
+            minimumSize: const Size(double.infinity, 50),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            disabledBackgroundColor: Colors.grey.shade400),
       ),
     );
   }
-}
+} // End of _ManageAttendanceScreenState

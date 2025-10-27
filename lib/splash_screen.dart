@@ -33,7 +33,7 @@ class _SplashScreenState extends State<SplashScreen> {
       });
 
     // This timer will navigate to the HomeScreen after 5 seconds, regardless of video length.
-    Timer(const Duration(seconds: 10), () {
+    Timer(const Duration(seconds: 8), () {
       if (mounted) {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const HomeScreen()),
