@@ -1,19 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:vraz_application/parent_session_manager.dart';
+
 import 'package:vraz_application/student_profile_provider.dart';
 import 'package:vraz_application/teacher_session_manager.dart';
+import 'package:vraz_application/universal_notification_service.dart';
 
 import 'Student/service/firebase_notification_service.dart';
 import 'firebase_options.dart';
 import 'student_session_manager.dart';
 import 'splash_screen.dart';
 
+// Universal notification service + API config
+import 'api_config.dart';
+
 void main() async {
-  // Ensure Flutter bindings are initialized
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Firebase ONCE here
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
@@ -36,6 +41,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (context) => SessionManager()),
         ChangeNotifierProvider(create: (context) => StudentProfileProvider()),
         Provider(create: (context) => TeacherSessionManager()),
+        ChangeNotifierProvider(create: (_) => ParentSessionManager()),
       ],
       child: MaterialApp(
         title: 'VRaZ Application',
@@ -68,23 +74,46 @@ class _AppInitializerState extends State<AppInitializer> {
 
   Future<void> _initializeServices() async {
     try {
-      // Wait for providers to be ready
       await Future.delayed(const Duration(milliseconds: 200));
-
-      // Get SessionManager
       final sessionManager = Provider.of<SessionManager>(context, listen: false);
 
-      // Initialize Firebase Messaging (NOT Firebase Core - already done in main)
+      // Keep existing FirebaseNotificationService init (if used elsewhere)
       await FirebaseNotificationService().initializeMessaging(sessionManager);
+      print('✅ FirebaseNotificationService initialized');
+
+      // Request permission for notifications (iOS)
+      try {
+        final messaging = FirebaseMessaging.instance;
+        final settings = await messaging.requestPermission(
+          alert: true,
+          announcement: false,
+          badge: true,
+          carPlay: false,
+          criticalAlert: false,
+          provisional: false,
+          sound: true,
+        );
+        print('ℹ️ FCM permission status: ${settings.authorizationStatus}');
+      } catch (e) {
+        print('⚠️ FCM permission request failed: $e');
+      }
+
+      // Initialize UniversalNotificationService (loads stored notifications & registers handlers)
+      try {
+        await UniversalNotificationService.instance.initialize(
+          baseUrl: ApiConfig.baseUrl,
+        );
+        print('✅ UniversalNotificationService initialized');
+      } catch (e) {
+        print('⚠️ UniversalNotificationService init failed: $e');
+      }
 
       print('✅ All services initialized');
     } catch (e) {
       print('❌ Error initializing services: $e');
     } finally {
       if (mounted) {
-        setState(() {
-          _isInitialized = true;
-        });
+        setState(() => _isInitialized = true);
       }
     }
   }

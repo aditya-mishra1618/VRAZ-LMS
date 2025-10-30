@@ -3,17 +3,18 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vraz_application/universal_notification_service.dart';
 
 import 'Student/models/auth_models.dart';
 import 'Student/service/firebase_notification_service.dart';
+// Universal service (single-file)
 
 class SessionManager extends ChangeNotifier {
   // --- Storage Keys ---
   final _secureStorage = const FlutterSecureStorage();
-  static const _activeTokenKey = 'authToken'; // For the currently active user
-  static const _activeUserDataKey =
-      'user_data'; // For the currently active user
-  static const _savedUsersKey = 'saved_users_map'; // For all remembered users
+  static const _activeTokenKey = 'authToken';
+  static const _activeUserDataKey = 'user_data';
+  static const _savedUsersKey = 'saved_users_map';
 
   // --- State for Active Session ---
   UserModel? _currentUser;
@@ -35,14 +36,19 @@ class SessionManager extends ChangeNotifier {
   }
 
   Future<void> _initializeSession() async {
-    // 1. Load the map of all saved users from standard storage
+    print('🔄 Initializing SessionManager...');
+
     final prefs = await SharedPreferences.getInstance();
     final savedUsersString = prefs.getString(_savedUsersKey);
     if (savedUsersString != null) {
-      _savedUsers = json.decode(savedUsersString);
+      try {
+        _savedUsers = json.decode(savedUsersString);
+      } catch (e) {
+        _savedUsers = {};
+      }
+      print('📦 Loaded ${_savedUsers.length} saved user(s)');
     }
 
-    // 2. Attempt to load the currently active session from secure storage
     _authToken = await _secureStorage.read(key: _activeTokenKey);
     final activeUserDataString = prefs.getString(_activeUserDataKey);
 
@@ -50,19 +56,38 @@ class SessionManager extends ChangeNotifier {
       try {
         _currentUser = UserModel.fromJson(json.decode(activeUserDataString));
         _isLoggedIn = true;
+        print('✅ Active session found: ${_currentUser!.fullName}');
+
+        // Do not block initialization — schedule notification registration & sync
+        Future(() async {
+          try {
+            // Keep existing FCM refresh for backward compatibility
+            await FirebaseNotificationService().refreshToken(this);
+
+            // Fetch notifications with Authorization header (authToken)
+            await UniversalNotificationService.instance.fetchAndMergeFromServer(
+              authToken: _authToken,
+            );
+
+            print('✅ Notification registration & sync attempted for restored student session');
+          } catch (e) {
+            print('⚠️ Notification registration/fetch failed during session init: $e');
+          }
+        });
       } catch (e) {
-        print("Error loading active session, logging out: $e");
-        await logout(); // Clear corrupt active session
+        print("❌ Error loading active session, logging out: $e");
+        await logout();
       }
     } else {
       _isLoggedIn = false;
+      print('ℹ️ No active session found');
     }
 
     _isInitialized = true;
     notifyListeners();
+    print('✅ SessionManager initialized');
   }
 
-  /// Checks the saved users map for an existing session.
   Future<Map<String, dynamic>?> getSavedSession(String phoneNumber) async {
     if (_savedUsers.containsKey(phoneNumber)) {
       final sessionData = _savedUsers[phoneNumber];
@@ -74,10 +99,10 @@ class SessionManager extends ChangeNotifier {
     return null;
   }
 
-  /// Creates and saves a new session, making it the active one.
   Future<void> createSession(
       UserModel user, String token, String phoneNumber) async {
-    // Existing code
+    print('💾 Creating session for: ${user.fullName}');
+
     _currentUser = user;
     _authToken = token;
     _isLoggedIn = true;
@@ -92,18 +117,44 @@ class SessionManager extends ChangeNotifier {
     };
     await prefs.setString(_savedUsersKey, json.encode(_savedUsers));
 
-    // ✅ ADD THIS: Register device token after login
-    await FirebaseNotificationService().refreshToken(this);
+    try {
+      await FirebaseNotificationService().refreshToken(this);
+      print('✅ FirebaseNotificationService.refreshToken() completed');
+    } catch (e) {
+      print('⚠️ FirebaseNotificationService.refreshToken() failed: $e');
+    }
+
+    // Only fetch & merge server notifications using Authorization header
+    try {
+      await UniversalNotificationService.instance.fetchAndMergeFromServer(
+        authToken: _authToken,
+      );
+      print('✅ Fetched & merged server notifications for student (auth header)');
+    } catch (e) {
+      print('⚠️ Error fetching notifications with auth header: $e');
+    }
 
     notifyListeners();
+    print('✅ Session created and saved');
   }
 
-  /// Logs out the active user but keeps their credentials saved for quick login.
   Future<void> logout() async {
-    // Delete FCM token
-    await FirebaseNotificationService().deleteToken();
+    print('🚪 Logging out user: ${_currentUser?.fullName ?? "Unknown"}');
 
-    // Existing logout code
+    try {
+      await FirebaseNotificationService().deleteToken();
+      print('✅ FCM token deleted');
+    } catch (e) {
+      print('⚠️ Error deleting FCM token: $e');
+    }
+
+    try {
+      await UniversalNotificationService.instance.clearAll();
+      print('✅ Cleared local notifications on logout');
+    } catch (e) {
+      print('⚠️ Failed to clear local notifications on logout: $e');
+    }
+
     _currentUser = null;
     _authToken = null;
     _isLoggedIn = false;
@@ -113,7 +164,9 @@ class SessionManager extends ChangeNotifier {
     await prefs.remove(_activeUserDataKey);
 
     notifyListeners();
+    print('✅ User logged out');
   }
+
   Future<String?> loadToken() async {
     if (!_isInitialized) {
       await _initializeSession();

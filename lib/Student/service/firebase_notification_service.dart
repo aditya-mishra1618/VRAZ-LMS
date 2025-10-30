@@ -120,7 +120,7 @@ class FirebaseNotificationService {
       _fcmToken = await _firebaseMessaging.getToken();
 
       if (_fcmToken != null) {
-        print('🔑 FCM Token: ${_fcmToken!.substring(0, 30)}...');
+        print('🔑 FCM Token: $_fcmToken');
         await _sendTokenToBackend(_fcmToken!, sessionManager);
       }
     } catch (e) {

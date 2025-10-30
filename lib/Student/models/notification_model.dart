@@ -1,4 +1,4 @@
-class NotificationModel {
+class StudentNotificationModel {
   final String id;
   final String title;
   final String body;
@@ -9,7 +9,7 @@ class NotificationModel {
   final String? type; // e.g., 'announcement', 'assignment', 'doubt', etc.
   final String? actionUrl; // Deep link or route to navigate
 
-  NotificationModel({
+  StudentNotificationModel({
     required this.id,
     required this.title,
     required this.body,
@@ -22,8 +22,8 @@ class NotificationModel {
   });
 
   // From JSON (from API response)
-  factory NotificationModel.fromJson(Map<String, dynamic> json) {
-    return NotificationModel(
+  factory StudentNotificationModel.fromJson(Map<String, dynamic> json) {
+    return StudentNotificationModel(
       id: json['id']?.toString() ?? '',
       title: json['title'] ?? '',
       body: json['body'] ?? json['message'] ?? '',
@@ -56,9 +56,9 @@ class NotificationModel {
   }
 
   // Create from Firebase RemoteMessage
-  factory NotificationModel.fromRemoteMessage(
+  factory StudentNotificationModel.fromRemoteMessage(
       dynamic remoteMessage, String notificationId) {
-    return NotificationModel(
+    return StudentNotificationModel(
       id: notificationId,
       title: remoteMessage.notification?.title ?? 'New Notification',
       body: remoteMessage.notification?.body ?? '',
@@ -73,7 +73,7 @@ class NotificationModel {
   }
 
   // CopyWith method for updating properties
-  NotificationModel copyWith({
+  StudentNotificationModel copyWith({
     String? id,
     String? title,
     String? body,
@@ -84,7 +84,7 @@ class NotificationModel {
     String? type,
     String? actionUrl,
   }) {
-    return NotificationModel(
+    return StudentNotificationModel(
       id: id ?? this.id,
       title: title ?? this.title,
       body: body ?? this.body,
@@ -106,7 +106,7 @@ class NotificationModel {
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
 
-    return other is NotificationModel && other.id == id;
+    return other is StudentNotificationModel && other.id == id;
   }
 
   @override
@@ -115,7 +115,7 @@ class NotificationModel {
 
 // Response wrapper for API list response
 class NotificationListResponse {
-  final List<NotificationModel> notifications;
+  final List<StudentNotificationModel> notifications;
   final int total;
   final int unreadCount;
   final int currentPage;
@@ -130,15 +130,15 @@ class NotificationListResponse {
   });
 
   factory NotificationListResponse.fromJson(Map<String, dynamic> json) {
-    var notificationsList = <NotificationModel>[];
+    var notificationsList = <StudentNotificationModel>[];
 
     if (json['notifications'] != null) {
       notificationsList = (json['notifications'] as List)
-          .map((item) => NotificationModel.fromJson(item))
+          .map((item) => StudentNotificationModel.fromJson(item))
           .toList();
     } else if (json['data'] != null) {
       notificationsList = (json['data'] as List)
-          .map((item) => NotificationModel.fromJson(item))
+          .map((item) => StudentNotificationModel.fromJson(item))
           .toList();
     }
 

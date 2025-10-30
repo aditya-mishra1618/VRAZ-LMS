@@ -5,9 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:vraz_application/Student/Student_dashboard_screen.dart';
+import 'package:vraz_application/parent_session_manager.dart';
 import 'package:vraz_application/teacher_session_manager.dart';
 
 import 'Admin/admin_dashboard_screen.dart';
+import 'Parents/models/parent_model.dart';
+import 'Parents/parents_dashboard.dart';
 import 'Student/models/auth_models.dart';
 import 'Teacher/Teacher_Dashboard_Screen.dart';
 // --- Imports for API Config ---
@@ -165,7 +168,7 @@ class _LoginScreenState extends State<LoginScreen> {
     });
   }
 
-  void _handleStudentLoginAttempt() async {
+  void _handleOtpLoginAttempt() async {
     if (_mobileController.text.length != 10) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -179,40 +182,61 @@ class _LoginScreenState extends State<LoginScreen> {
       _errorMessage = null;
     });
 
-    final sessionManager = Provider.of<SessionManager>(context, listen: false);
     final phoneNumber = _mobileController.text;
-    final savedSession = await sessionManager.getSavedSession(phoneNumber);
 
-    if (savedSession != null) {
-      final user = savedSession['user'] as UserModel;
-      final token = savedSession['token'] as String;
-      await sessionManager.createSession(user, token, phoneNumber);
-      if (!mounted) return;
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const StudentDashboard()),
-        (route) => false,
-      );
-    } else {
-      final success = await _sendOtpApi(phoneNumber);
-      if (!mounted) return;
-      setState(() {
-        if (success) {
-          _otpSent = true;
-          startTimer();
-        } else {
-          _errorMessage = "Failed to send OTP. Please try again.";
-        }
-      });
+    // Handle Student Login
+    if (widget.role == 'Student') {
+      final sessionManager = Provider.of<SessionManager>(context, listen: false);
+      final savedSession = await sessionManager.getSavedSession(phoneNumber);
+
+      if (savedSession != null) {
+        final user = savedSession['user'] as UserModel;
+        final token = savedSession['token'] as String;
+        await sessionManager.createSession(user, token, phoneNumber);
+        if (!mounted) return;
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const StudentDashboard()),
+              (route) => false,
+        );
+        setState(() => _isLoading = false);
+        return;
+      }
     }
 
-    if (mounted) {
-      setState(() {
-        _isLoading = false;
-      });
+    // Handle Parent Login
+    if (widget.role == 'Parent') {
+      final parentSessionManager = Provider.of<ParentSessionManager>(context, listen: false);
+      final savedSession = await parentSessionManager.getSavedSession(phoneNumber);
+
+      if (savedSession != null) {
+        final parent = savedSession['parent'] as ParentModel;
+        final token = savedSession['token'] as String;
+        await parentSessionManager.createSession(parent, token, phoneNumber);
+        if (!mounted) return;
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const ParentDashboardScreen()),
+              (route) => false,
+        );
+        setState(() => _isLoading = false);
+        return;
+      }
     }
+
+    // Send OTP (same API for both Student and Parent)
+    final success = await _sendOtpApi(phoneNumber);
+    if (!mounted) return;
+    setState(() {
+      if (success) {
+        _otpSent = true;
+        startTimer();
+      } else {
+        _errorMessage = "Failed to send OTP. Please try again.";
+      }
+      _isLoading = false;
+    });
   }
-
   void _verifyOtp() async {
     String otp = _otpControllers.map((c) => c.text).join();
     if (otp.length != 6) {
@@ -232,22 +256,44 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (responseData != null && mounted) {
       try {
-        final user = UserModel.fromJson(responseData['user']);
-        final token = responseData['token'];
-        final sessionManager =
-            Provider.of<SessionManager>(context, listen: false);
-        await sessionManager.createSession(user, token, phoneNumber);
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (_) => const StudentDashboard()),
-          (route) => false,
-        );
+        // Handle Student Login
+        if (widget.role == 'Student') {
+          final user = UserModel.fromJson(responseData['user']);
+          final token = responseData['token'];
+          final sessionManager =
+          Provider.of<SessionManager>(context, listen: false);
+          await sessionManager.createSession(user, token, phoneNumber);
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const StudentDashboard()),
+                (route) => false,
+          );
+        }
+        // Handle Parent Login
+        else if (widget.role == 'Parent') {
+          final parent = ParentModel.fromJson(responseData['user']);
+          final token = responseData['token'];
+          final parentSessionManager =
+          Provider.of<ParentSessionManager>(context, listen: false);
+          await parentSessionManager.createSession(parent, token, phoneNumber);
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const ParentDashboardScreen()),
+                (route) => false,
+          );
+        }
       } catch (e) {
+        debugPrint('[ERROR] Failed to process login: $e');
         if (!mounted) return;
         setState(() {
           _errorMessage = "Failed to process login data. Please try again.";
         });
       }
+    } else {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = "Invalid OTP. Please try again.";
+      });
     }
 
     if (mounted) {
@@ -428,17 +474,19 @@ class _LoginScreenState extends State<LoginScreen> {
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
-            onPressed: widget.role == 'Student'
-                ? _handleStudentLoginAttempt
-                : () {}, // Parent OTP API can be integrated later
+            onPressed: _handleOtpLoginAttempt, // Changed from _handleStudentLoginAttempt
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF2A65F8),
               padding: const EdgeInsets.symmetric(vertical: 16),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12)),
             ),
-            child: Text(widget.role == 'Student' ? 'Continue' : 'Send OTP',
-                style: const TextStyle(fontSize: 16, color: Colors.white)),
+            child: Text(
+                widget.role == 'Student' || widget.role == 'Parent'
+                    ? 'Continue'
+                    : 'Send OTP',
+                style: const TextStyle(fontSize: 16, color: Colors.white)
+            ),
           ),
         ),
       ],
