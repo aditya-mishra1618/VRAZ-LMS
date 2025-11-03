@@ -47,13 +47,10 @@ class AppDrawer extends StatelessWidget {
             icon: Icons.dashboard_outlined,
             text: 'Dashboard',
             onTap: () {
+              // --- KEY CHANGE 1: Fixed Dashboard Navigation ---
               Navigator.pop(context); // Close drawer
-              // Assuming StudentDashboard is the root, pop until there or pushReplacement
-              // For simplicity, let's just pop for now if not already there.
-              if (ModalRoute.of(context)?.settings.name != '/') {
-                // Example check, adjust if your dashboard route is named differently
-                // Or use Navigator.pushReplacement if always navigating anew
-              }
+              // Pop all screens until we get back to the first (root) screen
+              Navigator.popUntil(context, (route) => route.isFirst);
             },
           ),
           _buildDrawerItem(
@@ -152,7 +149,11 @@ class AppDrawer extends StatelessWidget {
   // Helper method to navigate to a new screen after closing the drawer.
   void _navigateToScreen(BuildContext context, Widget screen) {
     Navigator.pop(context); // Close the drawer
-    Navigator.push(
+
+    // --- KEY CHANGE 2: Use pushReplacement ---
+    // This REPLACES the current screen instead of stacking them,
+    // solving the "double-click" issue and keeping the stack clean.
+    Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (context) => screen),
     );
