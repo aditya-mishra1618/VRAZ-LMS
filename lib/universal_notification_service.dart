@@ -1,11 +1,12 @@
 /*
-  UniversalNotificationService (with fetch fallbacks)
+  UniversalNotificationService (with fetch fallbacks and role-based storage)
 
   - Tries POST /api/notifications/getMyNotifications with Authorization header.
   - If POST returns 404, will retry as GET.
   - If still 404, will try switching http <-> https on the base URL and repeat.
   - Logs full status and body for each attempt to help debug server routing issues.
   - Preserves previous behavior: persists notifications, handles FCM events, exposes notificationsStream.
+  - ✅ NOW WITH ROLE-BASED STORAGE: Each role (parent/teacher/student) has separate notification storage.
 */
 
 import 'dart:async';
@@ -17,8 +18,8 @@ import 'package:http/http.dart' as http;
 
 import '../api_config.dart';
 
-const String _kNotificationsKey = 'app_notifications_list';
-const String _kDefaultRegisterPath = '/api/notifications/register';
+const String _kDefaultNotificationsKey = 'app_notifications_list';
+const String _kDefaultRegisterPath = '/api/devices/register';
 const String _kDefaultMarkReadPath = '/api/notifications/mark-read';
 const String _kDefaultMarkAllReadPath = '/api/notifications/mark-all-read';
 
@@ -156,7 +157,8 @@ class AppNotification {
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   try {
     final prefs = await SharedPreferences.getInstance();
-    final existing = prefs.getString(_kNotificationsKey);
+    // Use default key for background messages (will be separated by role on app start)
+    final existing = prefs.getString(_kDefaultNotificationsKey);
     List<dynamic> list =
     existing != null ? json.decode(existing) as List<dynamic> : <dynamic>[];
 
@@ -171,7 +173,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     };
 
     list.insert(0, jsonPayload);
-    await prefs.setString(_kNotificationsKey, json.encode(list));
+    await prefs.setString(_kDefaultNotificationsKey, json.encode(list));
   } catch (_) {}
 }
 
@@ -184,6 +186,15 @@ class UniversalNotificationService {
   final List<AppNotification> _notifications = [];
   final StreamController<List<AppNotification>> _notificationsController =
   StreamController<List<AppNotification>>.broadcast();
+
+  // ✅ Role-based storage
+  String _currentRole = 'default';
+  String get _storageKey => '${_kDefaultNotificationsKey}_$_currentRole';
+
+  void setRole(String role) {
+    _currentRole = role.toLowerCase();
+    print('[UNS] 📌 Role set to: $_currentRole (storage key: $_storageKey)');
+  }
 
   String? _baseUrl;
   String _registerPath = _kDefaultRegisterPath;
@@ -263,8 +274,8 @@ class UniversalNotificationService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final jsonList = _notifications.map((n) => n.toJson()).toList();
-      await prefs.setString(_kNotificationsKey, json.encode(jsonList));
-      print('[UNS-DBG] Saved ${_notifications.length} notifications to SharedPreferences');
+      await prefs.setString(_storageKey, json.encode(jsonList));
+      print('[UNS-DBG] Saved ${_notifications.length} notifications to SharedPreferences (key=$_storageKey)');
     } catch (e) {
       print('[UNS-ERR] Failed to save notifications: $e');
     }
@@ -273,9 +284,9 @@ class UniversalNotificationService {
   Future<void> _loadFromStorage() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final jsonString = prefs.getString(_kNotificationsKey);
+      final jsonString = prefs.getString(_storageKey);
       if (jsonString == null) {
-        print('[UNS-DBG] No notifications stored yet (key=$_kNotificationsKey)');
+        print('[UNS-DBG] No notifications stored yet (key=$_storageKey)');
         return;
       }
       final List<dynamic> list = json.decode(jsonString) as List<dynamic>;
@@ -288,11 +299,11 @@ class UniversalNotificationService {
         }
       }
       _notificationsController.add(List.unmodifiable(_notifications));
-      print('[UNS-DBG] Loaded ${_notifications.length} notifications from storage');
+      print('[UNS-DBG] Loaded ${_notifications.length} notifications from storage (key=$_storageKey)');
     } catch (e) {
       print('[UNS-ERR] Failed to load notifications from storage: $e');
       final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_kNotificationsKey);
+      await prefs.remove(_storageKey);
     }
   }
 
@@ -302,7 +313,7 @@ class UniversalNotificationService {
     _notifications.clear();
     await _saveToStorage();
     _notificationsController.add(List.unmodifiable(_notifications));
-    print('[UNS] Cleared all local notifications');
+    print('[UNS] Cleared all local notifications (key=$_storageKey)');
   }
 
   Future<void> addNotificationFromModel(NotificationModel model) async {
@@ -335,8 +346,15 @@ class UniversalNotificationService {
   }
 
   // Main fetch with fallbacks: POST -> GET -> alternate scheme
+  /// Fetch notifications from server and merge into local store
+  /// ✅ OPTIMIZED: Uses GET directly for /api/notifications/getMyNotifications
   Future<void> fetchAndMergeFromServer({String? authToken}) async {
-    print('[UNS] fetchAndMergeFromServer() called authToken=${authToken != null ? "present" : "absent"}');
+    print('[UNS] 📥 Fetching notifications from server...');
+
+    if (authToken == null || authToken.isEmpty) {
+      print('[UNS] ⚠️ No auth token provided, skipping fetch');
+      return;
+    }
 
     final originalBase = (_baseUrl ?? ApiConfig.baseUrl) ?? '';
     if (originalBase.isEmpty) {
@@ -344,88 +362,65 @@ class UniversalNotificationService {
       return;
     }
 
-    // Build primary URL using original base and path
-    Uri primaryUri = _uri('/api/notifications/getMyNotifications');
-
-    Map<String, String> headers = _headers(authToken);
-
-    // 1) Try POST on primaryUri
-    print('[UNS] Attempting POST on $primaryUri');
-    final postResp = await _tryRequest(primaryUri, headers, method: 'POST', body: '');
-    if (postResp != null && postResp.statusCode >= 200 && postResp.statusCode < 300) {
-      // success -> parse
-      await _processFetchResponse(postResp);
-      return;
-    }
-
-    // If we got a 404 or other non-success, try GET on same URL
-    if (postResp != null && postResp.statusCode == 404) {
-      print('[UNS] POST returned 404, retrying as GET on same URL');
-      final getResp = await _tryRequest(primaryUri, headers, method: 'GET');
-      if (getResp != null && getResp.statusCode >= 200 && getResp.statusCode < 300) {
-        await _processFetchResponse(getResp);
-        return;
-      }
-      // If still not OK, continue to alternate scheme
-    } else if (postResp == null) {
-      print('[UNS] POST request failed (network/exception), attempting GET as fallback');
-      final getResp = await _tryRequest(primaryUri, headers, method: 'GET');
-      if (getResp != null && getResp.statusCode >= 200 && getResp.statusCode < 300) {
-        await _processFetchResponse(getResp);
-        return;
-      }
-    } else {
-      print('[UNS] POST response status ${postResp.statusCode} - attempting fallbacks');
-    }
-
-    // 2) Try alternate scheme (http <-> https) if primaryBase included a scheme
     try {
-      final altBase = _flipScheme(originalBase);
-      if (altBase != null && altBase.isNotEmpty && altBase != originalBase) {
-        final altUri = _buildUriWithBase(altBase, '/api/notifications/getMyNotifications');
-        print('[UNS] Trying alternate scheme: $altUri (method POST)');
-        final altPost = await _tryRequest(altUri, headers, method: 'POST', body: '');
-        if (altPost != null && altPost.statusCode >= 200 && altPost.statusCode < 300) {
-          await _processFetchResponse(altPost);
-          return;
-        }
-        if (altPost != null && altPost.statusCode == 404) {
-          print('[UNS] Alternate POST returned 404, retrying as GET');
-          final altGet = await _tryRequest(altUri, headers, method: 'GET');
-          if (altGet != null && altGet.statusCode >= 200 && altGet.statusCode < 300) {
-            await _processFetchResponse(altGet);
-            return;
-          }
-        }
-      }
-    } catch (e) {
-      print('[UNS-ERR] alternate scheme attempt exception: $e');
-    }
+      // ✅ DIRECT GET REQUEST (no POST attempt)
+      final url = _buildUriWithBase(originalBase, '/api/notifications/getMyNotifications');
+      final headers = _headers(authToken);
 
-    print('[UNS-ERR] All fetch attempts failed (POST/GET/alternate). No notifications merged.');
+      print('[UNS] GET $url');
+
+      final response = await http.get(url, headers: headers);
+
+      print('[UNS] Response status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        print('[UNS] ✅ Successfully fetched notifications');
+        await _processFetchResponse(response);
+      } else if (response.statusCode == 404) {
+        print('[UNS] ℹ️ Notifications endpoint not found (404)');
+      } else if (response.statusCode == 401) {
+        print('[UNS] ⚠️ Unauthorized (401) - token may be invalid');
+      } else {
+        print('[UNS] ⚠️ Unexpected status: ${response.statusCode}');
+        print('[UNS] Response body: ${response.body}');
+      }
+    } catch (e, stackTrace) {
+      print('[UNS-ERR] ❌ Failed to fetch notifications: $e');
+      print('[UNS-ERR] Stack trace: $stackTrace');
+    }
   }
 
-  // Process a successful fetch response: parse, merge, and save
+  /// Process a successful fetch response: parse, merge, and save
   Future<void> _processFetchResponse(http.Response resp) async {
     try {
       final body = _tryDecode(resp.body);
       final List<dynamic> payloadList = _extractListFromResponse(body);
-      print('[UNS] Server returned ${payloadList.length} notification items (processing)');
+
+      print('[UNS] Server returned ${payloadList.length} notification items');
+
+      if (payloadList.isEmpty) {
+        print('[UNS] ℹ️ No new notifications from server');
+        return;
+      }
+
       int added = 0;
       for (final e in payloadList) {
         final model = NotificationModel.fromJson(_asMap(e));
+
+        // Check if notification already exists
         if (!_notifications.any((n) => n.id == model.id)) {
           await addNotificationFromModel(model);
           added++;
-        } else {
-          print('[UNS] _processFetchResponse: skipped duplicate id=${model.id}');
         }
       }
-      print('[UNS] _processFetchResponse: merged $added new notifications');
-    } catch (e) {
+
+      print('[UNS] ✅ Merged $added new notifications from server');
+    } catch (e, stackTrace) {
       print('[UNS-ERR] Failed to process fetch response: $e');
+      print('[UNS-ERR] Stack trace: $stackTrace');
     }
   }
+
 
   // Helpers to build Uri/headers and flip scheme
   Uri _uri(String path) {
@@ -463,70 +458,102 @@ class UniversalNotificationService {
     return headers;
   }
 
-  Future<http.Response?> registerDeviceTokenForRole({
-    required String role,
-    required String userId,
+  // ========== DEVICE REGISTRATION METHODS ==========
+
+  Future<http.Response?> registerDeviceToken({
     String? authToken,
     String? customBaseUrl,
     String? customRegisterPath,
   }) async {
     final base = customBaseUrl ?? _baseUrl ?? ApiConfig.baseUrl;
-    if (base == null) throw Exception('Base URL not set for UniversalNotificationService');
+    if (base == null) {
+      print('[UNS-ERR] Base URL not set for registration');
+      throw Exception('Base URL not set for UniversalNotificationService');
+    }
 
     final path = customRegisterPath ?? _registerPath;
     final url = Uri.parse('${base.replaceAll(RegExp(r'/$'), '')}$path');
 
     final fcmToken = await _fm.getToken();
     if (fcmToken == null) {
-      print('[UNS] registerDeviceTokenForRole: no FCM token available');
+      print('[UNS] ⚠️ No FCM token available for registration');
       return null;
     }
 
+    // Backend expects: { "token": "fcm-device-token" }
     final payload = {
-      'role': role,
-      'userId': userId,
-      'fcmToken': fcmToken,
+      'token': fcmToken,
     };
 
     try {
-      print('[UNS] registerDeviceTokenForRole POST $url payload=${json.encode(payload)}');
-      final resp = await http.post(url,
-          headers: _headers(authToken), body: json.encode(payload));
-      print('[UNS] registerDeviceTokenForRole status=${resp.statusCode} body=${resp.body}');
+      print('[UNS] 📤 Registering device token...');
+      print('[UNS] POST $url');
+      if (authToken != null && authToken.length > 20) {
+        print('[UNS] Authorization: Bearer ${authToken.substring(0, 20)}...');
+      }
+      print('[UNS] Payload: ${json.encode(payload)}');
+
+      final resp = await http.post(
+        url,
+        headers: _headers(authToken),
+        body: json.encode(payload),
+      );
+
+      print('[UNS] Response status: ${resp.statusCode}');
+      print('[UNS] Response body: ${resp.body}');
+
+      if (resp.statusCode >= 200 && resp.statusCode < 300) {
+        print('[UNS] ✅ Device registered successfully');
+      } else {
+        print('[UNS] ⚠️ Registration failed with status ${resp.statusCode}');
+      }
+
       return resp;
-    } catch (e) {
-      print('[UNS-ERR] registerDeviceTokenForRole exception: $e');
+    } catch (e, stackTrace) {
+      print('[UNS-ERR] ❌ Registration exception: $e');
+      print('[UNS-ERR] Stack trace: $stackTrace');
       return null;
     }
   }
 
   Future<http.Response?> registerStudentDevice({
-    required String studentPhone,
     String? authToken,
     String? customBaseUrl,
     String? customRegisterPath,
-  }) =>
-      registerDeviceTokenForRole(
-        role: 'Student',
-        userId: studentPhone,
-        authToken: authToken,
-        customBaseUrl: customBaseUrl,
-        customRegisterPath: customRegisterPath,
-      );
+  }) {
+    print('[UNS] 📱 Registering Student device...');
+    return registerDeviceToken(
+      authToken: authToken,
+      customBaseUrl: customBaseUrl,
+      customRegisterPath: customRegisterPath,
+    );
+  }
 
   Future<http.Response?> registerTeacherDevice({
-    required String teacherId,
     String? authToken,
     String? customBaseUrl,
     String? customRegisterPath,
-  }) =>
-      registerDeviceTokenForRole(
-        role: 'Teacher',
-        userId: teacherId,
-        authToken: authToken,
-        customBaseUrl: customBaseUrl,
-        customRegisterPath: customRegisterPath,
-      );
+  }) {
+    print('[UNS] 📱 Registering Teacher device...');
+    return registerDeviceToken(
+      authToken: authToken,
+      customBaseUrl: customBaseUrl,
+      customRegisterPath: customRegisterPath,
+    );
+  }
+
+  Future<http.Response?> registerParentDevice({
+    String? authToken,
+    String? customBaseUrl,
+    String? customRegisterPath,
+  }) {
+    print('[UNS] 📱 Registering Parent device...');
+    return registerDeviceToken(
+      authToken: authToken,
+      customBaseUrl: customBaseUrl,
+      customRegisterPath: customRegisterPath,
+    );
+  }
 
   Future<void> markAsRead(String id,
       {bool syncWithServer = false, String? serverToken, String? customMarkReadPath}) async {
@@ -599,9 +626,9 @@ class UniversalNotificationService {
       return <String, dynamic>{};
     }
   }
+
   Future<NotificationModel?> getNotificationDetails(String id, {String? authToken}) async {
     final url = _uri('/api/notifications/getNotificationDetails/$id');
-    // Use _tryRequest helper if available; otherwise use a direct GET
     final resp = await _tryRequest(url, _headers(authToken), method: 'GET');
     if (resp != null && resp.statusCode >= 200 && resp.statusCode < 300) {
       final body = _tryDecode(resp.body);
@@ -614,16 +641,16 @@ class UniversalNotificationService {
         return null;
       }
     } else {
-      // No data or non-2xx — return null
       print('[UNS-ERR] getNotificationDetails failed status=${resp?.statusCode ?? "null"}');
       return null;
     }
   }
+
   Future<String> debugDumpStorage() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final jsonString = prefs.getString(_kNotificationsKey) ?? '';
-      print('[UNS-DBG] debugDumpStorage -> ${jsonString.length} chars');
+      final jsonString = prefs.getString(_storageKey) ?? '';
+      print('[UNS-DBG] debugDumpStorage -> ${jsonString.length} chars (key=$_storageKey)');
       return jsonString;
     } catch (e) {
       print('[UNS-ERR] debugDumpStorage exception: $e');

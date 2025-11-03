@@ -1,17 +1,21 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vraz_application/Parents/service/parent_child_api.dart';
 import 'package:vraz_application/Parents/service/parent_profile_api_service.dart';
-import '../parent_session_manager.dart';
+
+import '../Parents/notifications_screen.dart';
 import 'Grievance_screen.dart';
 import 'attendance_report_screen.dart';
+import 'grievance_chat_screen.dart';
 import 'models/parent_child_model.dart';
 import 'models/parent_profile_model.dart';
-import 'notifications_screen.dart';
+import 'models/child_profile_model.dart';
 import 'parent_app_drawer.dart';
 import 'parent_teacher_meeting_screen.dart';
 import 'payments_screen.dart';
 import 'results_screen.dart';
+import 'service/child_profile_api.dart';
 import 'timetable_screen.dart';
 
 class ParentDashboardScreen extends StatefulWidget {
@@ -21,110 +25,338 @@ class ParentDashboardScreen extends StatefulWidget {
   State<ParentDashboardScreen> createState() => _ParentDashboardScreenState();
 }
 
-class _ParentDashboardScreenState extends State<ParentDashboardScreen> {
+class _ParentDashboardScreenState extends State<ParentDashboardScreen> with WidgetsBindingObserver {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  List<ParentChild> _childrenDetails = [];
-  bool _isLoadingChildren = false;
-  ParentProfile? _profile;
-  bool _isLoadingProfile = false;
+
+  // State variables
+  ParentProfile? _parentProfile;
+  List<ParentChild> _children = [];
+  ParentChild? _selectedChild;
+  ChildProfile? _selectedChildProfile;
+  bool _isLoading = true;
+  String? _authToken;
+  int _notificationBadgeCount = 0; // ✅ NEW: Dynamic badge count
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this); // ✅ NEW: Listen to app lifecycle
     _loadParentData();
-    _fetchParentProfile();
-    _fetchParentChildren();
+    _loadNotificationCount(); // ✅ NEW: Load badge count
   }
-  Future<void> _fetchParentChildren() async {
-    setState(() => _isLoadingChildren = true);
-    final sessionManager = Provider.of<ParentSessionManager>(context, listen: false);
-    final token = sessionManager.token;
-    if (token != null) {
-      final childrenList = await ParentChildrenApi.fetchParentChildren(token);
-      print('[ParentDashboard] Loaded children: $childrenList');
-      setState(() {
-        _childrenDetails = childrenList;
-        _isLoadingChildren = false;
-      });
-      sessionManager.setChildrenDetails(childrenList);
-    } else {
-      setState(() => _isLoadingChildren = false);
-    }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
-  Future<void> _fetchParentProfile() async {
-    setState(() => _isLoadingProfile = true);
-    final sessionManager = Provider.of<ParentSessionManager>(context, listen: false);
-    final token = sessionManager.token;
-    if (token != null) {
-      final profile = await ParentProfileApi.fetchParentProfile(token);
-      setState(() {
-        _profile = profile;
-        _isLoadingProfile = false;
-      });
-    } else {
-      setState(() => _isLoadingProfile = false);
+
+  // ✅ NEW: Reload badge when returning to dashboard
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadNotificationCount();
     }
   }
 
-  void _loadParentData() {
-    final sessionManager = Provider.of<ParentSessionManager>(context, listen: false);
-    final parent = sessionManager.currentParent;
+  // ✅ NEW: Load notification count from SharedPreferences
+  Future<void> _loadNotificationCount() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final count = prefs.getInt('unread_notification_count') ?? 0;
 
-    debugPrint('[ParentDashboard] 👤 Loaded parent: ${parent?.fullName}');
-    debugPrint('[ParentDashboard] 👶 Children count: ${parent?.children.length ?? 0}');
+      if (mounted) {
+        setState(() {
+          _notificationBadgeCount = count;
+        });
+      }
+
+      print('[ParentDashboard] 🔔 Notification badge count: $count');
+    } catch (e) {
+      print('[ParentDashboard] ❌ Failed to load notification count: $e');
+    }
   }
 
-  int? _getChildId() {
-    final sessionManager = Provider.of<ParentSessionManager>(context, listen: false);
-    final parent = sessionManager.currentParent;
+  Future<void> _loadParentData() async {
+    setState(() => _isLoading = true);
 
-    if (parent?.children.isNotEmpty == true) {
-      try {
-        return int.parse(parent!.children.first);
-      } catch (e) {
-        debugPrint('[ParentDashboard] ❌ Invalid child ID format: $e');
-        return null;
+    try {
+      // 1. Get auth token from SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      _authToken = prefs.getString('parent_auth_token');
+
+      if (_authToken == null || _authToken!.isEmpty) {
+        print('[ParentDashboard] ❌ No auth token found');
+        _showError('Session expired. Please login again.');
+        return;
+      }
+
+      print('[ParentDashboard] ✅ Auth token found: ${_authToken!.substring(0, 20)}...');
+
+      // 2. Fetch parent profile
+      print('[ParentDashboard] 🔄 Fetching parent profile...');
+      _parentProfile = await ParentProfileApi.fetchParentProfile(_authToken!);
+
+      if (_parentProfile != null) {
+        print('[ParentDashboard] ✅ Parent profile loaded: ${_parentProfile!.fullName}');
+        await _saveParentProfile(_parentProfile!);
+      } else {
+        print('[ParentDashboard] ⚠️ Failed to fetch parent profile');
+      }
+
+      // 3. Fetch children list
+      print('[ParentDashboard] 🔄 Fetching children list...');
+      _children = await ParentChildrenApi.fetchParentChildren(_authToken!);
+
+      if (_children.isNotEmpty) {
+        print('[ParentDashboard] ✅ Loaded ${_children.length} children');
+        await _saveChildren(_children);
+
+        // Set first child as selected by default
+        _selectedChild = _children.first;
+        await _saveSelectedChild(_selectedChild!);
+
+        // Fetch detailed profile for selected child
+        print('[ParentDashboard] 🔄 Fetching detailed profile for child: ${_selectedChild!.id}');
+        _selectedChildProfile = await ChildProfileApi.fetchChildProfile(
+          authToken: _authToken!,
+          childId: _selectedChild!.id,
+        );
+
+        if (_selectedChildProfile != null) {
+          print('[ParentDashboard] ✅ Child profile loaded: ${_selectedChildProfile!.fullName}');
+          await _saveChildProfile(_selectedChildProfile!);
+        } else {
+          print('[ParentDashboard] ⚠️ Failed to fetch child profile');
+        }
+
+        print('[ParentDashboard] Selected child: ${_selectedChild!.fullName}');
+      } else {
+        print('[ParentDashboard] ⚠️ No children found');
+        _showInfo('No children linked to this account.');
+      }
+    } catch (e, stackTrace) {
+      print('[ParentDashboard] ❌ Error loading data: $e');
+      print('[ParentDashboard] Stack trace: $stackTrace');
+      _showError('Failed to load data. Please try again.');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
       }
     }
-    return null;
   }
 
-  Future<void> _handleLogout() async {
-    final shouldLogout = await showDialog<bool>(
+  // Save parent profile to SharedPreferences
+  Future<void> _saveParentProfile(ParentProfile profile) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('parent_full_name', profile.fullName);
+      await prefs.setString('parent_phone_number', profile.phoneNumber);
+      await prefs.setString('parent_email', profile.email);
+      await prefs.setString('parent_occupation', profile.occupation);
+      if (profile.photoUrl != null) {
+        await prefs.setString('parent_photo_url', profile.photoUrl!);
+      }
+      print('[ParentDashboard] ✅ Parent profile saved locally');
+    } catch (e) {
+      print('[ParentDashboard] ❌ Failed to save parent profile: $e');
+    }
+  }
+
+  // Save children list to SharedPreferences
+  Future<void> _saveChildren(List<ParentChild> children) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final childrenJson = children.map((c) => c.toJson()).toList();
+      await prefs.setString('parent_children', childrenJson.toString());
+      await prefs.setInt('parent_children_count', children.length);
+      print('[ParentDashboard] ✅ ${children.length} children saved locally');
+    } catch (e) {
+      print('[ParentDashboard] ❌ Failed to save children: $e');
+    }
+  }
+
+  // Save selected child to SharedPreferences
+  Future<void> _saveSelectedChild(ParentChild child) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('selected_child_id', child.id);
+      await prefs.setString('selected_child_name', child.fullName);
+      await prefs.setString('selected_child_branch', child.branchName);
+      await prefs.setString('selected_child_course', child.courseName);
+      print('[ParentDashboard] ✅ Selected child saved: ${child.fullName}');
+    } catch (e) {
+      print('[ParentDashboard] ❌ Failed to save selected child: $e');
+    }
+  }
+
+  // Save child profile details to SharedPreferences
+  Future<void> _saveChildProfile(ChildProfile profile) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Save child profile details
+      await prefs.setInt('child_profile_id', profile.id);
+      await prefs.setString('child_full_name', profile.fullName);
+      await prefs.setString('child_email', profile.email);
+      await prefs.setString('child_phone', profile.phoneNumber);
+      await prefs.setString('child_current_class', profile.currentClass);
+      await prefs.setString('child_school_name', profile.schoolName);
+      await prefs.setString('child_board', profile.board);
+      await prefs.setString('child_marks_cgpa', profile.marksOrCgpa);
+      await prefs.setString('child_category', profile.category);
+      await prefs.setString('child_status', profile.status);
+      await prefs.setString('child_form_number', profile.formNumber);
+      await prefs.setString('child_session_year', profile.sessionYear);
+
+      // Emergency contact
+      await prefs.setString('child_emergency_name', profile.emergencyContactName);
+      await prefs.setString('child_emergency_number', profile.emergencyContactNumber);
+      await prefs.setString('child_emergency_relation', profile.emergencyContactRelation);
+
+      // Fee details
+      await prefs.setString('child_course_fee', profile.courseFee);
+      await prefs.setString('child_total_payable', profile.totalPayable);
+      await prefs.setBool('child_with_gst', profile.withGst);
+      await prefs.setString('child_gst_percentage', profile.gstPercentage);
+
+      // Branch and course
+      await prefs.setString('child_branch_name', profile.branchName);
+      await prefs.setString('child_branch_code', profile.branch.code);
+      await prefs.setString('child_branch_location', profile.branch.locationAddress);
+      await prefs.setString('child_course_name', profile.courseName);
+      await prefs.setString('child_course_code', profile.course.code);
+
+      // Student user details
+      if (profile.photoUrl != null) {
+        await prefs.setString('child_photo_url', profile.photoUrl!);
+      }
+      await prefs.setString('child_address', profile.studentUser.address);
+      await prefs.setString('child_gender', profile.studentUser.gender);
+      if (profile.studentUser.dateOfBirth != null) {
+        await prefs.setString('child_dob', profile.studentUser.dateOfBirth!.toIso8601String());
+      }
+      if (profile.admissionDate != null) {
+        await prefs.setString('child_admission_date', profile.admissionDate!.toIso8601String());
+      }
+
+      // Save entire profile as JSON (for easy retrieval)
+      await prefs.setString('child_profile_json', json.encode(profile.toJson()));
+
+      print('[ParentDashboard] ✅ Child profile saved locally');
+      print('[ParentDashboard] 📋 Saved details: Class: ${profile.currentClass}, School: ${profile.schoolName}');
+    } catch (e) {
+      print('[ParentDashboard] ❌ Failed to save child profile: $e');
+    }
+  }
+
+  void _showError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
+  }
+
+  void _showInfo(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  // Show child selector and fetch profile when switched
+  void _showChildSelector() {
+    if (_children.isEmpty) {
+      _showInfo('No children available');
+      return;
+    }
+
+    showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Logout'),
-        content: const Text('Are you sure you want to logout?'),
+        title: const Text('Select Child'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: _children.length,
+            itemBuilder: (context, index) {
+              final child = _children[index];
+              final isSelected = _selectedChild?.id == child.id;
+              return ListTile(
+                leading: CircleAvatar(
+                  backgroundImage: child.photoUrl != null
+                      ? NetworkImage(child.photoUrl!)
+                      : const AssetImage('assets/profile.png') as ImageProvider,
+                  child: child.photoUrl == null
+                      ? Text(child.fullName[0].toUpperCase())
+                      : null,
+                ),
+                title: Text(
+                  child.fullName,
+                  style: TextStyle(
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  ),
+                ),
+                subtitle: Text('${child.courseName} - ${child.branchName}'),
+                trailing: isSelected
+                    ? const Icon(Icons.check_circle, color: Colors.green)
+                    : null,
+                onTap: () async {
+                  Navigator.pop(context);
+
+                  setState(() {
+                    _selectedChild = child;
+                    _isLoading = true;
+                  });
+
+                  // Fetch detailed profile for newly selected child
+                  print('[ParentDashboard] 🔄 Switching to child: ${child.fullName} (ID: ${child.id})');
+                  _selectedChildProfile = await ChildProfileApi.fetchChildProfile(
+                    authToken: _authToken!,
+                    childId: child.id,
+                  );
+
+                  if (_selectedChildProfile != null) {
+                    await _saveSelectedChild(child);
+                    await _saveChildProfile(_selectedChildProfile!);
+                    print('[ParentDashboard] ✅ Switched to child: ${_selectedChildProfile!.fullName}');
+                  } else {
+                    print('[ParentDashboard] ⚠️ Failed to fetch profile for switched child');
+                  }
+
+                  setState(() => _isLoading = false);
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Selected: ${child.fullName}'),
+                      backgroundColor: Colors.green,
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.pop(context),
             child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-            ),
-            child: const Text('Logout'),
           ),
         ],
       ),
     );
-
-    if (shouldLogout == true && mounted) {
-      final sessionManager = Provider.of<ParentSessionManager>(context, listen: false);
-      await sessionManager.clearSession();
-
-      if (!mounted) return;
-
-      Navigator.of(context).popUntil((route) => route.isFirst);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Logged out successfully'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    }
   }
 
   @override
@@ -141,70 +373,54 @@ class _ParentDashboardScreenState extends State<ParentDashboardScreen> {
           'Parent Dashboard',
           style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
         ),
-        backgroundColor: const Color(0xFFF0F4F8),
-        elevation: 0,
-        centerTitle: true,
         actions: [
+          if (_children.length > 1)
+            IconButton(
+              icon: const Icon(Icons.swap_horiz, color: Colors.black54),
+              onPressed: _showChildSelector,
+              tooltip: 'Switch Child',
+            ),
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.black54),
-            onPressed: () {
-              setState(() {
-                _loadParentData();
-              });
+            onPressed: _isLoading ? null : () {
+              _loadParentData();
+              _loadNotificationCount(); // ✅ Also refresh badge
             },
             tooltip: 'Refresh',
           ),
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.black54),
-            onPressed: _handleLogout,
-            tooltip: 'Logout',
-          ),
         ],
+        backgroundColor: const Color(0xFFF0F4F8),
+        elevation: 0,
+        centerTitle: true,
       ),
       drawer: const ParentAppDrawer(),
-      body: Consumer<ParentSessionManager>(
-        builder: (context, sessionManager, child) {
-          final parent = sessionManager.currentParent;
-
-          if (parent == null) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
-          }
-
-          return RefreshIndicator(
-            onRefresh: () async {
-              setState(() {
-                _loadParentData();
-              });
-              await Future.delayed(const Duration(seconds: 1));
-            },
-            child: SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  _buildParentInfoCard(parent),
-                  const SizedBox(height: 24),
-                  _buildChildrenSection(parent),
-                  const SizedBox(height: 24),
-                  _buildGridView(),
-                ],
-              ),
-            ),
-          );
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+        onRefresh: () async {
+          await _loadParentData();
+          await _loadNotificationCount(); // ✅ Also refresh badge
         },
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            children: [
+              _buildParentInfoCard(),
+              if (_selectedChild != null) ...[
+                const SizedBox(height: 16),
+                _buildSelectedChildCard(),
+              ],
+              const SizedBox(height: 24),
+              _buildGridView(),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  Widget _buildParentInfoCard(parent) {
-    final profile = _profile;
-
-    if (_isLoadingProfile) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
+  Widget _buildParentInfoCard() {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -226,18 +442,13 @@ class _ParentDashboardScreenState extends State<ParentDashboardScreen> {
         children: [
           CircleAvatar(
             radius: 30,
-            backgroundImage: profile?.photoUrl != null
-                ? NetworkImage(profile!.photoUrl!)
-                : null,
-            backgroundColor: Colors.blueGrey,
-            child: profile?.photoUrl == null
+            backgroundImage: _parentProfile?.photoUrl != null
+                ? NetworkImage(_parentProfile!.photoUrl!)
+                : const AssetImage('assets/profile.png') as ImageProvider,
+            child: _parentProfile?.photoUrl == null
                 ? Text(
-              (profile?.fullName ?? parent.fullName)[0].toUpperCase(),
-              style: const TextStyle(
-                fontSize: 28,
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
+              _parentProfile?.fullName[0].toUpperCase() ?? 'P',
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             )
                 : null,
           ),
@@ -252,47 +463,17 @@ class _ParentDashboardScreenState extends State<ParentDashboardScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  profile?.fullName ?? parent.fullName,
+                  _parentProfile?.fullName ?? 'Loading...',
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 22,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    const Icon(Icons.phone, size: 14, color: Colors.black54),
-                    const SizedBox(width: 4),
-                    Text(
-                      profile?.phoneNumber ?? parent.phoneNumber,
-                      style: const TextStyle(
-                        color: Colors.black54,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-                if (profile?.email != null && profile!.email.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2.0),
-                    child: Text(
-                      profile!.email,
-                      style: const TextStyle(
-                        color: Colors.black45,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                if (profile?.occupation != null && profile!.occupation.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2.0),
-                    child: Text(
-                      profile!.occupation,
-                      style: const TextStyle(
-                        color: Colors.black45,
-                        fontSize: 12,
-                      ),
-                    ),
+                if (_parentProfile?.occupation != null &&
+                    _parentProfile!.occupation.isNotEmpty)
+                  Text(
+                    _parentProfile!.occupation,
+                    style: TextStyle(color: Colors.black.withOpacity(0.6), fontSize: 12),
                   ),
               ],
             ),
@@ -302,143 +483,90 @@ class _ParentDashboardScreenState extends State<ParentDashboardScreen> {
     );
   }
 
-  Widget _buildChildrenSection(parent) {
-    if (parent.children.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(15),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.1),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Center(
-          child: Column(
-            children: [
-              Icon(
-                Icons.people_outline,
-                size: 48,
-                color: Colors.grey.shade400,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'No children linked yet',
-                style: TextStyle(
-                  color: Colors.grey.shade600,
-                  fontSize: 14,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
+  Widget _buildSelectedChildCard() {
+    if (_selectedChild == null) return const SizedBox.shrink();
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
+        borderRadius: BorderRadius.circular(16),
+        gradient: LinearGradient(
+          colors: [Colors.green.shade100, Colors.teal.shade50],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
+            color: Colors.green.withOpacity(0.1),
             blurRadius: 8,
             offset: const Offset(0, 4),
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'My Children',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  '${parent.children.length}',
-                  style: TextStyle(
-                    color: Colors.blue.shade700,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
+          CircleAvatar(
+            radius: 25,
+            backgroundImage: _selectedChild!.photoUrl != null
+                ? NetworkImage(_selectedChild!.photoUrl!)
+                : const AssetImage('assets/profile.png') as ImageProvider,
+            child: _selectedChild!.photoUrl == null
+                ? Text(
+              _selectedChild!.fullName[0].toUpperCase(),
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            )
+                : null,
           ),
-          const SizedBox(height: 12),
-          ...parent.children.asMap().entries.map((entry) {
-            final index = entry.key;
-            final childId = entry.value;
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    CircleAvatar(
-                      backgroundColor: Colors.blue.shade100,
-                      radius: 20,
-                      child: Text(
-                        '${index + 1}',
-                        style: TextStyle(
-                          color: Colors.blue.shade700,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                    const Text(
+                      'Viewing: ',
+                      style: TextStyle(color: Colors.black54, fontSize: 12),
                     ),
-                    const SizedBox(width: 12),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Student',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Text(
-                            'ID: $childId',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                        ],
+                      child: Text(
+                        _selectedChild!.fullName,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                    Icon(
-                      Icons.verified_user,
-                      color: Colors.green.shade400,
-                      size: 20,
                     ),
                   ],
                 ),
-              ),
-            );
-          }).toList(),
+                const SizedBox(height: 4),
+                Text(
+                  '${_selectedChild!.courseName} - ${_selectedChild!.branchName}',
+                  style: TextStyle(
+                    color: Colors.black.withOpacity(0.6),
+                    fontSize: 12,
+                  ),
+                ),
+                if (_selectedChildProfile != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    'Class: ${_selectedChildProfile!.currentClass}',
+                    style: TextStyle(
+                      color: Colors.black.withOpacity(0.5),
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (_children.length > 1)
+            IconButton(
+              icon: const Icon(Icons.swap_horiz, color: Colors.black54),
+              onPressed: _showChildSelector,
+              tooltip: 'Switch Child',
+            ),
         ],
       ),
     );
@@ -449,38 +577,54 @@ class _ParentDashboardScreenState extends State<ParentDashboardScreen> {
       {
         'icon': Icons.chat_bubble_outline,
         'label': 'Grievance',
-        'colors': [Colors.lightBlue.shade100, Colors.lightBlue.shade200]
+        'colors': [Colors.lightBlue.shade100, Colors.lightBlue.shade200],
+        'screen': const GrievanceScreen(),
+      },
+      {
+        'icon': Icons.support_agent_outlined,
+        'label': 'Support Chat',
+        'colors': [Colors.cyan.shade100, Colors.cyan.shade200],
+        'screen': const GrievanceChatScreen(
+          navigationSource: 'dashboard',
+          grievanceTitle: '',
+        ),
       },
       {
         'icon': Icons.group_add_outlined,
         'label': 'Parent-Teacher Meeting',
-        'colors': [Colors.purple.shade100, Colors.purple.shade200]
+        'colors': [Colors.purple.shade100, Colors.purple.shade200],
+        'screen': const ParentTeacherMeetingScreen(),
       },
       {
         'icon': Icons.calendar_today_outlined,
         'label': 'Attendance Record',
-        'colors': [Colors.orange.shade100, Colors.orange.shade200]
+        'colors': [Colors.orange.shade100, Colors.orange.shade200],
+        'screen': const AttendanceReportScreen(),
       },
       {
         'icon': Icons.credit_card_outlined,
         'label': 'Payments Screen',
-        'colors': [Colors.green.shade100, Colors.green.shade200]
+        'colors': [Colors.green.shade100, Colors.green.shade200],
+        'screen': const PaymentsScreen(),
       },
       {
         'icon': Icons.emoji_events_outlined,
         'label': 'Results',
-        'colors': [Colors.blue.shade100, Colors.blue.shade200]
+        'colors': [Colors.blue.shade100, Colors.blue.shade200],
+        'screen': const ResultsScreen(),
       },
       {
         'icon': Icons.notifications_outlined,
         'label': 'Notifications',
         'colors': [Colors.red.shade100, Colors.red.shade200],
-        'badge': '3'
+        'badge': _notificationBadgeCount > 0 ? _notificationBadgeCount.toString() : null, // ✅ DYNAMIC BADGE
+        'screen': const NotificationsScreen(),
       },
       {
         'icon': Icons.schedule_outlined,
         'label': 'Timetable',
-        'colors': [Colors.deepPurple.shade100, Colors.deepPurple.shade200]
+        'colors': [Colors.deepPurple.shade100, Colors.deepPurple.shade200],
+        'screen': const TimetableScreen(),
       },
     ];
 
@@ -500,76 +644,31 @@ class _ParentDashboardScreenState extends State<ParentDashboardScreen> {
           item['icon'] as IconData,
           item['label'] as String,
           item['colors'] as List<Color>,
+          item['screen'] as Widget?,
           badge: item['badge'] as String?,
         );
       },
     );
   }
 
-  Widget _buildGridItem(IconData icon, String label, List<Color> colors,
-      {String? badge}) {
+  Widget _buildGridItem(
+      IconData icon,
+      String label,
+      List<Color> colors,
+      Widget? screen, {
+        String? badge,
+      }) {
     return InkWell(
-      onTap: () {
-        final childId = _getChildId();
-
-        if (label == 'Grievance') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const GrievanceScreen(),
-            ),
-          );
-        } else if (label == 'Parent-Teacher Meeting') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const ParentTeacherMeetingScreen(),
-            ),
-          );
-        } else if (label == 'Attendance Record') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const AttendanceReportScreen(),
-            ),
-          );
-        } else if (label == 'Payments Screen') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const PaymentsScreen(),
-            ),
-          );
-        } else if (label == 'Results') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const ResultsScreen(),
-            ),
-          );
-        } else if (label == 'Notifications') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const NotificationsScreen(),
-            ),
-          );
-        } else if (label == 'Timetable') {
-          if (childId != null) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => TimetableScreen(childId: childId),
-              ),
-            );
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('No child linked to view timetable'),
-                backgroundColor: Colors.orange,
-              ),
-            );
-          }
+      onTap: screen == null
+          ? null
+          : () async {
+        // ✅ Reload badge count when returning from notifications screen
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => screen),
+        );
+        if (label == 'Notifications') {
+          _loadNotificationCount();
         }
       },
       borderRadius: BorderRadius.circular(20),
@@ -590,16 +689,13 @@ class _ParentDashboardScreenState extends State<ParentDashboardScreen> {
                 children: [
                   Icon(icon, size: 40, color: Colors.black.withOpacity(0.7)),
                   const SizedBox(height: 12),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                    child: Text(
-                      label,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                        color: Colors.black.withOpacity(0.8),
-                      ),
+                  Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black.withOpacity(0.8),
+                      fontSize: 14,
                     ),
                   ),
                 ],
@@ -617,11 +713,7 @@ class _ParentDashboardScreenState extends State<ParentDashboardScreen> {
                   ),
                   child: Text(
                     badge,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
                   ),
                 ),
               ),

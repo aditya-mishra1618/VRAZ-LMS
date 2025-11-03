@@ -1,196 +1,158 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:intl/intl.dart';
-import '../../Student/models/timetable_model.dart';
 import '../../api_config.dart';
-import '../models/timetable_model.dart' hide TimetableModel;
+import '../models/timetable_model.dart';
 
-/// TimetableApiService - provides static methods used by the UI.
-/// Keeps the same return map shape as your screen expects.
-class TimetableApiService {
-  static final Duration _defaultTimeout = const Duration(seconds: 15);
-
-  /// Fetch weekly timetable for a child ID
-  /// Returns a Map with:
-  ///  - 'success': true on success
-  ///  - 'timetable': List<TimetableModel>
-  ///  - 'student': StudentInfoModel?
-  ///  - 'startDate' and 'endDate' as DateTime
-  /// On error returns a map with 'error': true and 'message'
-  static Future<Map<String, dynamic>?> fetchTimetable({
+class TimetableApi {
+  /// Fetch weekly timetable for a specific child
+  static Future<WeeklyTimetable?> fetchChildTimetable({
+    required String authToken,
     required int childId,
-    required String token,
-    DateTime? selectedDate,
+    required DateTime startDate,
+    required DateTime endDate,
   }) async {
+    // Format dates as YYYY-MM-DD
+    final startDateStr = _formatDate(startDate);
+    final endDateStr = _formatDate(endDate);
+
+    final url = Uri.parse(
+      '${ApiConfig.baseUrl}/api/parentMobile/my/children/timetable/$childId?startDate=$startDateStr&endDate=$endDateStr',
+    );
+
+    print('[TimetableApi] 📅 Fetching timetable for child: $childId');
+    print('[TimetableApi] GET $url');
+    print('[TimetableApi] Date range: $startDateStr to $endDateStr');
+    print('[TimetableApi] Auth token: ${authToken.substring(0, 30)}...');
+
     try {
-      final date = selectedDate ?? DateTime.now();
-      final monday = date.subtract(Duration(days: date.weekday - 1));
-      final sunday = monday.add(const Duration(days: 6));
-
-      final startDate = DateFormat('yyyy-MM-dd').format(monday);
-      final endDate = DateFormat('yyyy-MM-dd').format(sunday);
-
-      final url = Uri.parse(
-        '${ApiConfig.baseUrl}/api/parentMobile/my/children/timetable/$childId?startDate=$startDate&endDate=$endDate',
-      );
-
-      debugPrint('[TimetableAPI] 📅 Fetching timetable for child: $childId');
-      debugPrint('[TimetableAPI] 📅 Date range: $startDate to $endDate');
-      debugPrint('[TimetableAPI] 📅 URL: $url');
-
       final response = await http.get(
         url,
         headers: {
+          'Authorization': 'Bearer $authToken',
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      ).timeout(
-        _defaultTimeout,
-        onTimeout: () {
-          throw Exception('Request timeout');
         },
       );
 
-      debugPrint('[TimetableAPI] ✅ Response status: ${response.statusCode}');
-      debugPrint('[TimetableAPI] 📄 Response body: ${response.body}');
+      print('[TimetableApi] Response status: ${response.statusCode}');
+      print('[TimetableApi] Response body: ${response.body}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
 
-        final List<TimetableModel> timetableList = [];
+        // Handle different response structures
+        List<dynamic> timetableData;
 
-        List<dynamic>? timetableData;
         if (data is List) {
           timetableData = data;
-        } else if (data is Map) {
+        } else if (data is Map<String, dynamic>) {
           timetableData = data['timetable'] ??
               data['data'] ??
+              data['entries'] ??
               data['schedule'] ??
-              data['classes'] ??
-              data['items'];
+              [];
+        } else {
+          print('[TimetableApi] ⚠️ Unexpected response format');
+          return null;
         }
 
-        if (timetableData != null && timetableData is List) {
-          for (var item in timetableData) {
-            try {
-              if (item is Map<String, dynamic>) {
-                timetableList.add(TimetableModel.fromJson(item));
-              } else if (item is Map) {
-                timetableList.add(TimetableModel.fromJson(Map<String, dynamic>.from(item)));
-              } else {
-                debugPrint('[TimetableAPI] ⚠️ Skipping non-map timetable item: $item');
-              }
-            } catch (e) {
-              debugPrint('[TimetableAPI] ⚠️ Error parsing timetable item: $e');
-            }
-          }
+        if (timetableData.isEmpty) {
+          print('[TimetableApi] ℹ️ No timetable entries for this week');
+          return WeeklyTimetable(
+            weekStart: startDate,
+            weekEnd: endDate,
+            entries: [],
+          );
         }
 
-        StudentInfoModel? studentInfo;
-        if (data is Map && data['student'] != null) {
-          try {
-            final studentRaw = data['student'];
-            if (studentRaw is Map) {
-              studentInfo = StudentInfoModel.fromJson(Map<String, dynamic>.from(studentRaw));
-            }
-          } catch (e) {
-            debugPrint('[TimetableAPI] ⚠️ Error parsing student info: $e');
-          }
-        }
+        final entries = timetableData
+            .map((e) => TimetableEntry.fromJson(e as Map<String, dynamic>))
+            .toList();
 
-        debugPrint('[TimetableAPI] ✅ Successfully parsed ${timetableList.length} classes');
+        print('[TimetableApi] ✅ Parsed ${entries.length} timetable entries');
 
-        return {
-          'success': true,
-          'timetable': timetableList,
-          'student': studentInfo,
-          'startDate': monday,
-          'endDate': sunday,
-        };
+        return WeeklyTimetable(
+          weekStart: startDate,
+          weekEnd: endDate,
+          entries: entries,
+        );
       } else if (response.statusCode == 401) {
-        debugPrint('[TimetableAPI] ❌ Unauthorized - Token may be expired');
-        return {
-          'error': true,
-          'message': 'Session expired. Please login again.',
-          'statusCode': 401,
-        };
+        print('[TimetableApi] ❌ Unauthorized - token may be expired');
+        return null;
       } else if (response.statusCode == 404) {
-        debugPrint('[TimetableAPI] ⚠️ No timetable found for this child');
-        return {
-          'error': true,
-          'message': 'No timetable found for this student.',
-          'statusCode': 404,
-        };
+        print('[TimetableApi] ℹ️ No timetable found for this child/week');
+        return WeeklyTimetable(
+          weekStart: startDate,
+          weekEnd: endDate,
+          entries: [],
+        );
       } else {
-        dynamic errorData;
-        try {
-          errorData = json.decode(response.body);
-        } catch (_) {
-          errorData = {'message': response.body};
-        }
-        debugPrint('[TimetableAPI] ❌ Error: ${errorData['message']}');
-        return {
-          'error': true,
-          'message': errorData['message'] ?? 'Failed to fetch timetable',
-          'statusCode': response.statusCode,
-        };
+        print('[TimetableApi] ❌ Failed with status: ${response.statusCode}');
+        return null;
       }
     } catch (e, stackTrace) {
-      debugPrint('[TimetableAPI] ❌ Exception: $e');
-      debugPrint('[TimetableAPI] 📚 Stack trace: $stackTrace');
-      return {
-        'error': true,
-        'message': 'Network error. Please check your connection.',
-      };
+      print('[TimetableApi] ❌ ERROR: $e');
+      print('[TimetableApi] Stack trace: $stackTrace');
+      return null;
     }
   }
 
-  /// Download timetable PDF (returns bytes in 'data' if success)
-  static Future<Map<String, dynamic>> downloadTimetable({
-    required int childId,
-    required String token,
-  }) async {
-    try {
-      final url = Uri.parse(
-        '${ApiConfig.baseUrl}/api/parentMobile/my/children/timetable/$childId/download',
-      );
+  /// Format DateTime to YYYY-MM-DD string
+  static String _formatDate(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
 
-      debugPrint('[TimetableAPI] 📥 Downloading timetable for child: $childId');
+  /// Get current week's start (Monday) and end (Sunday) dates
+  static Map<String, DateTime> getCurrentWeekDates() {
+    final now = DateTime.now();
+    final currentWeekday = now.weekday; // 1 = Monday, 7 = Sunday
 
-      final response = await http.get(
-        url,
-        headers: {
-          'Authorization': 'Bearer $token',
-        },
-      ).timeout(
-        const Duration(seconds: 30),
-        onTimeout: () {
-          throw Exception('Download timeout');
-        },
-      );
+    // Calculate Monday of current week
+    final weekStart = now.subtract(Duration(days: currentWeekday - 1));
+    // Calculate Sunday of current week
+    final weekEnd = weekStart.add(const Duration(days: 6));
 
-      if (response.statusCode == 200) {
-        debugPrint('[TimetableAPI] ✅ Timetable downloaded successfully');
-        return {
-          'success': true,
-          'message': 'Timetable downloaded successfully',
-          'data': response.bodyBytes,
-        };
-      } else {
-        debugPrint('[TimetableAPI] ❌ Download failed: ${response.statusCode}');
-        return {
-          'error': true,
-          'message': 'Download failed. Please try again.',
-          'statusCode': response.statusCode,
-        };
-      }
-    } catch (e) {
-      debugPrint('[TimetableAPI] ❌ Download exception: $e');
-      return {
-        'error': true,
-        'message': 'Failed to download timetable.',
-      };
-    }
+    return {
+      'start': DateTime(weekStart.year, weekStart.month, weekStart.day),
+      'end': DateTime(weekEnd.year, weekEnd.month, weekEnd.day, 23, 59, 59),
+    };
+  }
+
+  /// Get week dates for a specific date (returns Monday-Sunday of that week)
+  static Map<String, DateTime> getWeekDatesForDate(DateTime date) {
+    final currentWeekday = date.weekday; // 1 = Monday, 7 = Sunday
+
+    // Calculate Monday of the week containing 'date'
+    final weekStart = date.subtract(Duration(days: currentWeekday - 1));
+    // Calculate Sunday of the week
+    final weekEnd = weekStart.add(const Duration(days: 6));
+
+    return {
+      'start': DateTime(weekStart.year, weekStart.month, weekStart.day),
+      'end': DateTime(weekEnd.year, weekEnd.month, weekEnd.day, 23, 59, 59),
+    };
+  }
+
+  /// Get next week's start and end dates
+  static Map<String, DateTime> getNextWeekDates(DateTime currentWeekStart) {
+    final nextWeekStart = currentWeekStart.add(const Duration(days: 7));
+    return getWeekDatesForDate(nextWeekStart);
+  }
+
+  /// Get previous week's start and end dates
+  static Map<String, DateTime> getPreviousWeekDates(DateTime currentWeekStart) {
+    final previousWeekStart = currentWeekStart.subtract(const Duration(days: 7));
+    return getWeekDatesForDate(previousWeekStart);
+  }
+
+  /// Check if a date is in the current week
+  static bool isInCurrentWeek(DateTime date) {
+    final currentWeek = getCurrentWeekDates();
+    return date.isAfter(currentWeek['start']!.subtract(const Duration(seconds: 1))) &&
+        date.isBefore(currentWeek['end']!.add(const Duration(seconds: 1)));
+  }
+
+  /// Get date range string for display
+  static String getDateRangeString(DateTime start, DateTime end) {
+    return '${_formatDate(start)} to ${_formatDate(end)}';
   }
 }

@@ -4,6 +4,8 @@ import 'Teacher/models/teacher_model.dart';
 
 class TeacherSessionManager {
   static const String _teacherKey = 'teacher_session';
+  static const String _tokenKey = 'teacher_auth_token';      // ✅ NEW
+  static const String _emailKey = 'teacher_email';           // ✅ NEW
 
   // In-memory session state
   TeacherModel? _currentTeacher;
@@ -54,12 +56,17 @@ class TeacherSessionManager {
     };
     await prefs.setString(_teacherKey, json.encode(sessionData));
 
+    // ✅ ALSO SAVE TOKEN AND EMAIL SEPARATELY (for notifications)
+    await prefs.setString(_tokenKey, cleanToken);
+    await prefs.setString(_emailKey, user.email);
+
     // Update in-memory state
     _authToken = cleanToken;
     _currentTeacher = user;
     _isInitialized = true;
 
     print('[DEBUG] Teacher session saved. Token length: ${cleanToken.length}');
+    print('[DEBUG] Teacher auth token saved separately for notifications');
   }
 
   // Get teacher session (returns raw stored data)
@@ -95,9 +102,12 @@ class TeacherSessionManager {
   Future<void> clearSession() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_teacherKey);
+    await prefs.remove(_tokenKey);    // ✅ NEW
+    await prefs.remove(_emailKey);    // ✅ NEW
+
     _currentTeacher = null;
     _authToken = null;
-    _isInitialized = true; // mark initialized to avoid re-initializing repeatedly
+    _isInitialized = true;
     print('[DEBUG] Teacher session cleared.');
   }
 }

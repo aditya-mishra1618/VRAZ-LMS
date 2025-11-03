@@ -1,198 +1,154 @@
-// Timetable and Student models used by the Timetable screen/service.
+import 'package:flutter/material.dart';
 
-class TimetableModel {
-  final String id;
-  final int childId;
-  final String subject;
+class TimetableEntry {
+  final int id;
+  final String subjectName;
   final String teacherName;
-  final String? teacherId;
   final String startTime;
   final String endTime;
-  final String day;
+  final String dayOfWeek;
   final DateTime date;
   final String? roomNumber;
-  final String? notes;
-  final bool isActive;
+  final String? batchName;
 
-  TimetableModel({
+  TimetableEntry({
     required this.id,
-    required this.childId,
-    required this.subject,
+    required this.subjectName,
     required this.teacherName,
-    this.teacherId,
     required this.startTime,
     required this.endTime,
-    required this.day,
+    required this.dayOfWeek,
     required this.date,
     this.roomNumber,
-    this.notes,
-    this.isActive = true,
+    this.batchName,
   });
 
-  factory TimetableModel.fromJson(Map<String, dynamic> json) {
+  factory TimetableEntry.fromJson(Map<String, dynamic> json) {
+    // Parse date
     DateTime parsedDate;
-    try {
-      final raw = json['date'];
-      if (raw == null) {
-        parsedDate = DateTime.now();
-      } else if (raw is int) {
-        parsedDate = DateTime.fromMillisecondsSinceEpoch(raw);
-      } else {
-        parsedDate = DateTime.parse(raw.toString());
-      }
-    } catch (_) {
+    if (json['date'] != null) {
+      parsedDate = DateTime.tryParse(json['date'].toString()) ?? DateTime.now();
+    } else {
       parsedDate = DateTime.now();
     }
 
-    int parseInt(dynamic v) {
-      if (v is int) return v;
-      if (v == null) return 0;
-      return int.tryParse(v.toString()) ?? 0;
-    }
-
-    return TimetableModel(
-      id: (json['id']?.toString() ?? json['_id']?.toString() ?? ''),
-      childId: parseInt(json['childId'] ?? json['child_id'] ?? json['child']),
-      subject: (json['subject'] ?? json['subjectName'] ?? json['title'] ?? '').toString(),
-      teacherName: (json['teacherName'] ?? json['teacher'] ?? json['faculty'] ?? '').toString(),
-      teacherId: (json['teacherId']?.toString() ?? json['teacher_id']?.toString()),
-      startTime: (json['startTime'] ?? json['start_time'] ?? json['from'] ?? '').toString(),
-      endTime: (json['endTime'] ?? json['end_time'] ?? json['to'] ?? '').toString(),
-      day: (json['day'] ?? json['dayOfWeek'] ?? '').toString(),
+    return TimetableEntry(
+      id: json['id'] ?? json['_id'] ?? 0,
+      subjectName: json['subjectName'] ??
+          json['subject']?['name'] ??
+          json['courseName'] ??
+          'Unknown Subject',
+      teacherName: json['teacherName'] ??
+          json['teacher']?['fullName'] ??
+          json['facultyName'] ??
+          'Unknown Teacher',
+      startTime: json['startTime'] ?? json['start_time'] ?? '09:00',
+      endTime: json['endTime'] ?? json['end_time'] ?? '10:00',
+      dayOfWeek: json['dayOfWeek'] ?? json['day'] ?? _getDayName(parsedDate.weekday),
       date: parsedDate,
-      roomNumber: (json['roomNumber'] ?? json['room'] ?? json['classRoom'])?.toString(),
-      notes: (json['notes'] ?? json['description'])?.toString(),
-      isActive: json['isActive'] ?? json['is_active'] ?? true,
+      roomNumber: json['roomNumber']?.toString() ?? json['room']?.toString(),
+      batchName: json['batchName']?.toString() ?? json['batch']?['name']?.toString(),
     );
+  }
+
+  static String _getDayName(int weekday) {
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    return days[weekday - 1];
   }
 
   Map<String, dynamic> toJson() {
     return {
       'id': id,
-      'childId': childId,
-      'subject': subject,
+      'subjectName': subjectName,
       'teacherName': teacherName,
-      'teacherId': teacherId,
       'startTime': startTime,
       'endTime': endTime,
-      'day': day,
+      'dayOfWeek': dayOfWeek,
       'date': date.toIso8601String(),
       'roomNumber': roomNumber,
-      'notes': notes,
-      'isActive': isActive,
+      'batchName': batchName,
     };
   }
 
   String get timeRange => '$startTime - $endTime';
 
-  @override
-  String toString() {
-    return 'TimetableModel(subject: $subject, teacher: $teacherName, time: $timeRange, date: $date)';
-  }
-}
-
-class StudentInfoModel {
-  final int id;
-  final String name;
-  final String className;
-  final String? rollNumber;
-  final String? profilePicture;
-  final String? email;
-  final String? phone;
-
-  StudentInfoModel({
-    required this.id,
-    required this.name,
-    required this.className,
-    this.rollNumber,
-    this.profilePicture,
-    this.email,
-    this.phone,
-  });
-
-  factory StudentInfoModel.fromJson(Map<String, dynamic> json) {
-    final idValue = json['id'] ?? json['childId'] ?? json['studentId'] ?? json['child_id'] ?? json['_id'];
-    int parsedId = 0;
-    if (idValue is int) {
-      parsedId = idValue;
-    } else if (idValue != null) {
-      parsedId = int.tryParse(idValue.toString()) ?? 0;
-    }
-
-    return StudentInfoModel(
-      id: parsedId,
-      name: (json['name'] ?? json['fullName'] ?? json['studentName'] ?? '').toString(),
-      className: (json['className'] ?? json['class'] ?? json['grade'] ?? '').toString(),
-      rollNumber: (json['rollNumber'] ?? json['studentId']?.toString())?.toString(),
-      profilePicture: (json['profilePicture'] ?? json['avatar'] ?? json['photo'])?.toString(),
-      email: (json['email'] ?? json['studentEmail'])?.toString(),
-      phone: (json['phone'] ?? json['phoneNumber'])?.toString(),
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'name': name,
-      'className': className,
-      'rollNumber': rollNumber,
-      'profilePicture': profilePicture,
-      'email': email,
-      'phone': phone,
-    };
+  IconData get icon {
+    final subject = subjectName.toLowerCase();
+    if (subject.contains('physics')) return Icons.science_outlined;
+    if (subject.contains('chemistry')) return Icons.biotech_outlined;
+    if (subject.contains('math')) return Icons.calculate_outlined;
+    if (subject.contains('biology')) return Icons.spa_outlined;
+    if (subject.contains('doubt')) return Icons.help_outline;
+    if (subject.contains('test')) return Icons.quiz_outlined;
+    return Icons.book_outlined;
   }
 
   @override
   String toString() {
-    return 'StudentInfoModel(id: $id, name: $name, class: $className)';
+    return 'TimetableEntry(id: $id, subject: $subjectName, date: $date)';
   }
 }
 
-/// Optional: ParentChild model helper (if you want to pass a ParentChild instance later).
-class ParentChild {
-  final int id;
-  final String status;
-  final String fullName;
-  final String? photoUrl;
-  final String branchName;
-  final String courseName;
+class WeeklyTimetable {
+  final DateTime weekStart;
+  final DateTime weekEnd;
+  final List<TimetableEntry> entries;
 
-  ParentChild({
-    required this.id,
-    required this.status,
-    required this.fullName,
-    this.photoUrl,
-    required this.branchName,
-    required this.courseName,
+  WeeklyTimetable({
+    required this.weekStart,
+    required this.weekEnd,
+    required this.entries,
   });
 
-  factory ParentChild.fromJson(Map<String, dynamic> json) {
-    final idValue = json['id'] ?? json['childId'] ?? json['studentId'] ?? json['_id'];
-    int parsedId = 0;
-    if (idValue is int) {
-      parsedId = idValue;
-    } else if (idValue != null) {
-      parsedId = int.tryParse(idValue.toString()) ?? 0;
+  factory WeeklyTimetable.fromJson(Map<String, dynamic> json) {
+    final entriesList = json['timetable'] ?? json['entries'] ?? json['data'] ?? [];
+
+    final entries = (entriesList as List)
+        .map((e) => TimetableEntry.fromJson(e as Map<String, dynamic>))
+        .toList();
+
+    return WeeklyTimetable(
+      weekStart: DateTime.tryParse(json['weekStart']?.toString() ?? '') ?? DateTime.now(),
+      weekEnd: DateTime.tryParse(json['weekEnd']?.toString() ?? '') ?? DateTime.now(),
+      entries: entries,
+    );
+  }
+
+  // Get entries for a specific date
+  List<TimetableEntry> getEntriesForDate(DateTime date) {
+    return entries.where((entry) {
+      return entry.date.year == date.year &&
+          entry.date.month == date.month &&
+          entry.date.day == date.day;
+    }).toList()
+      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+  }
+
+  // Get entries grouped by day
+  Map<DateTime, List<TimetableEntry>> getEntriesByDay() {
+    final Map<DateTime, List<TimetableEntry>> grouped = {};
+
+    for (var entry in entries) {
+      final dateKey = DateTime(entry.date.year, entry.date.month, entry.date.day);
+      if (!grouped.containsKey(dateKey)) {
+        grouped[dateKey] = [];
+      }
+      grouped[dateKey]!.add(entry);
     }
 
-    return ParentChild(
-      id: parsedId,
-      status: (json['status'] ?? json['active'] ?? '').toString(),
-      fullName: (json['fullName'] ?? json['studentUser']?['fullName'] ?? json['name'] ?? '').toString(),
-      photoUrl: (json['photoUrl'] ?? json['studentUser']?['photoUrl'] ?? json['avatar'])?.toString(),
-      branchName: (json['branch']?['name'] ?? json['branchName'] ?? '').toString(),
-      courseName: (json['course']?['name'] ?? json['courseName'] ?? '').toString(),
-    );
+    // Sort entries within each day
+    grouped.forEach((key, value) {
+      value.sort((a, b) => a.startTime.compareTo(b.startTime));
+    });
+
+    return grouped;
   }
 
   Map<String, dynamic> toJson() {
     return {
-      'id': id,
-      'status': status,
-      'fullName': fullName,
-      'photoUrl': photoUrl,
-      'branchName': branchName,
-      'courseName': courseName,
+      'weekStart': weekStart.toIso8601String(),
+      'weekEnd': weekEnd.toIso8601String(),
+      'entries': entries.map((e) => e.toJson()).toList(),
     };
   }
 }

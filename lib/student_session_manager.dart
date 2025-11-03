@@ -7,7 +7,6 @@ import 'package:vraz_application/universal_notification_service.dart';
 
 import 'Student/models/auth_models.dart';
 import 'Student/service/firebase_notification_service.dart';
-// Universal service (single-file)
 
 class SessionManager extends ChangeNotifier {
   // --- Storage Keys ---
@@ -58,20 +57,15 @@ class SessionManager extends ChangeNotifier {
         _isLoggedIn = true;
         print('✅ Active session found: ${_currentUser!.fullName}');
 
-        // Do not block initialization — schedule notification registration & sync
+        // Fetch notifications with Authorization header (non-blocking)
         Future(() async {
           try {
-            // Keep existing FCM refresh for backward compatibility
-            await FirebaseNotificationService().refreshToken(this);
-
-            // Fetch notifications with Authorization header (authToken)
             await UniversalNotificationService.instance.fetchAndMergeFromServer(
               authToken: _authToken,
             );
-
-            print('✅ Notification registration & sync attempted for restored student session');
+            print('✅ Notification sync completed for restored student session');
           } catch (e) {
-            print('⚠️ Notification registration/fetch failed during session init: $e');
+            print('⚠️ Notification fetch failed during session init: $e');
           }
         });
       } catch (e) {
@@ -117,21 +111,14 @@ class SessionManager extends ChangeNotifier {
     };
     await prefs.setString(_savedUsersKey, json.encode(_savedUsers));
 
-    try {
-      await FirebaseNotificationService().refreshToken(this);
-      print('✅ FirebaseNotificationService.refreshToken() completed');
-    } catch (e) {
-      print('⚠️ FirebaseNotificationService.refreshToken() failed: $e');
-    }
-
-    // Only fetch & merge server notifications using Authorization header
+    // Fetch & merge server notifications using Authorization header
     try {
       await UniversalNotificationService.instance.fetchAndMergeFromServer(
         authToken: _authToken,
       );
-      print('✅ Fetched & merged server notifications for student (auth header)');
+      print('✅ Fetched & merged server notifications for student');
     } catch (e) {
-      print('⚠️ Error fetching notifications with auth header: $e');
+      print('⚠️ Error fetching notifications: $e');
     }
 
     notifyListeners();
@@ -141,6 +128,7 @@ class SessionManager extends ChangeNotifier {
   Future<void> logout() async {
     print('🚪 Logging out user: ${_currentUser?.fullName ?? "Unknown"}');
 
+    // Delete FCM token
     try {
       await FirebaseNotificationService().deleteToken();
       print('✅ FCM token deleted');
@@ -148,6 +136,7 @@ class SessionManager extends ChangeNotifier {
       print('⚠️ Error deleting FCM token: $e');
     }
 
+    // Clear local notifications
     try {
       await UniversalNotificationService.instance.clearAll();
       print('✅ Cleared local notifications on logout');

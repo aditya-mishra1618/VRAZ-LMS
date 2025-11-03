@@ -1,9 +1,6 @@
 import 'dart:convert';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:http/http.dart' as http;
-
-import '../../student_session_manager.dart';
 
 class FirebaseNotificationService {
   static final FirebaseNotificationService _instance =
@@ -20,8 +17,8 @@ class FirebaseNotificationService {
   bool _isInitialized = false;
   bool _localNotificationsAvailable = false;
 
-  // Initialize ONLY Firebase Messaging (NOT Firebase Core)
-  Future<void> initializeMessaging(SessionManager sessionManager) async {
+  // Initialize Firebase Messaging
+  Future<void> initializeMessaging() async {
     if (_isInitialized) {
       print('⚠️ Firebase Messaging already initialized');
       return;
@@ -42,23 +39,22 @@ class FirebaseNotificationService {
           settings.authorizationStatus == AuthorizationStatus.provisional) {
         print('✅ Notification permission granted');
 
-        // Try to initialize local notifications (optional)
+        // Initialize local notifications
         try {
           await _initializeLocalNotifications();
           _localNotificationsAvailable = true;
         } catch (e) {
-          print('⚠️ Local notifications unavailable, using system notifications: $e');
+          print('⚠️ Local notifications unavailable: $e');
           _localNotificationsAvailable = false;
-          // Continue anyway - system notifications will still work
         }
 
-        // Get FCM token
-        await _getFCMToken(sessionManager);
+        // Get FCM token (just retrieve, don't register)
+        await _getFCMToken();
 
         // Setup handlers
         _setupForegroundMessageHandler();
         _setupNotificationTapHandler();
-        _setupTokenRefreshHandler(sessionManager);
+        _setupTokenRefreshHandler();
 
         _isInitialized = true;
         print('✅ Firebase Messaging initialized successfully');
@@ -68,7 +64,6 @@ class FirebaseNotificationService {
     } catch (e, stackTrace) {
       print('❌ Error initializing Firebase Messaging: $e');
       print('Stack: $stackTrace');
-      // Don't throw - app should continue
     }
   }
 
@@ -87,14 +82,12 @@ class FirebaseNotificationService {
       iOS: iosSettings,
     );
 
-    // Initialize with error handling
     final bool? initialized = await _localNotifications.initialize(
       initSettings,
       onDidReceiveNotificationResponse: _onNotificationTapped,
     );
 
     if (initialized == true || initialized == null) {
-      // Create notification channel for Android
       const AndroidNotificationChannel channel = AndroidNotificationChannel(
         'vraz_channel',
         'VRAZ Notifications',
@@ -115,48 +108,16 @@ class FirebaseNotificationService {
     }
   }
 
-  Future<void> _getFCMToken(SessionManager sessionManager) async {
+  Future<void> _getFCMToken() async {
     try {
       _fcmToken = await _firebaseMessaging.getToken();
 
       if (_fcmToken != null) {
         print('🔑 FCM Token: $_fcmToken');
-        await _sendTokenToBackend(_fcmToken!, sessionManager);
+        print('ℹ️ Token will be registered with backend after login');
       }
     } catch (e) {
       print('❌ Error getting FCM token: $e');
-    }
-  }
-
-  Future<void> _sendTokenToBackend(
-      String token, SessionManager sessionManager) async {
-    try {
-      final authToken = await sessionManager.loadToken();
-
-      if (authToken == null || authToken.isEmpty) {
-        print('⚠️ No auth token - will register after login');
-        return;
-      }
-
-      print('📤 Sending FCM token to backend...');
-
-      final response = await http.post(
-        Uri.parse('https://vraz-backend-api.onrender.com/api/devices/register'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $authToken',
-        },
-        body: json.encode({'token': token}),
-      );
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        print('✅ Device registered: ${response.body}');
-      } else {
-        print('❌ Registration failed: ${response.statusCode}');
-        print('Response: ${response.body}');
-      }
-    } catch (e) {
-      print('❌ Error sending token: $e');
     }
   }
 
@@ -186,12 +147,12 @@ class FirebaseNotificationService {
 
   void _handleNotificationTap(Map<String, dynamic> data) {
     print('🔗 Handle navigation: $data');
-    // TODO: Implement navigation
+    // TODO: Implement navigation based on notification data
   }
 
   Future<void> _showLocalNotification(RemoteMessage message) async {
     if (!_localNotificationsAvailable) {
-      print('⚠️ Local notifications not available, skipping');
+      print('⚠️ Local notifications not available');
       return;
     }
 
@@ -222,11 +183,11 @@ class FirebaseNotificationService {
     }
   }
 
-  void _setupTokenRefreshHandler(SessionManager sessionManager) {
+  void _setupTokenRefreshHandler() {
     _firebaseMessaging.onTokenRefresh.listen((newToken) {
-      print('🔄 Token refreshed');
+      print('🔄 FCM Token refreshed: $newToken');
       _fcmToken = newToken;
-      _sendTokenToBackend(newToken, sessionManager);
+      print('ℹ️ New token available - should re-register after next login');
     });
   }
 
@@ -249,14 +210,6 @@ class FirebaseNotificationService {
       print('🗑️ FCM token deleted');
     } catch (e) {
       print('❌ Error deleting token: $e');
-    }
-  }
-
-  Future<void> refreshToken(SessionManager sessionManager) async {
-    if (_fcmToken != null) {
-      await _sendTokenToBackend(_fcmToken!, sessionManager);
-    } else {
-      await _getFCMToken(sessionManager);
     }
   }
 }

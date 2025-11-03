@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:vraz_application/parent_session_manager.dart';
-
 import 'package:vraz_application/student_profile_provider.dart';
 import 'package:vraz_application/teacher_session_manager.dart';
 import 'package:vraz_application/universal_notification_service.dart';
@@ -12,8 +11,6 @@ import 'Student/service/firebase_notification_service.dart';
 import 'firebase_options.dart';
 import 'student_session_manager.dart';
 import 'splash_screen.dart';
-
-// Universal notification service + API config
 import 'api_config.dart';
 
 void main() async {
@@ -75,13 +72,12 @@ class _AppInitializerState extends State<AppInitializer> {
   Future<void> _initializeServices() async {
     try {
       await Future.delayed(const Duration(milliseconds: 200));
-      final sessionManager = Provider.of<SessionManager>(context, listen: false);
 
-      // Keep existing FirebaseNotificationService init (if used elsewhere)
-      await FirebaseNotificationService().initializeMessaging(sessionManager);
+      // Initialize Firebase Messaging (generates FCM token, sets up handlers)
+      await FirebaseNotificationService().initializeMessaging();
       print('✅ FirebaseNotificationService initialized');
 
-      // Request permission for notifications (iOS)
+      // Request permission for notifications
       try {
         final messaging = FirebaseMessaging.instance;
         final settings = await messaging.requestPermission(
@@ -98,10 +94,11 @@ class _AppInitializerState extends State<AppInitializer> {
         print('⚠️ FCM permission request failed: $e');
       }
 
-      // Initialize UniversalNotificationService (loads stored notifications & registers handlers)
+      // Initialize UniversalNotificationService
       try {
         await UniversalNotificationService.instance.initialize(
           baseUrl: ApiConfig.baseUrl,
+          registerPath: '/api/devices/register',
         );
         print('✅ UniversalNotificationService initialized');
       } catch (e) {

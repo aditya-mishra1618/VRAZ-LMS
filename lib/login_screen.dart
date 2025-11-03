@@ -13,11 +13,11 @@ import 'Parents/models/parent_model.dart';
 import 'Parents/parents_dashboard.dart';
 import 'Student/models/auth_models.dart';
 import 'Teacher/Teacher_Dashboard_Screen.dart';
-// --- Imports for API Config ---
 import 'Teacher/models/teacher_model.dart';
 import 'Teacher/services/login_api.dart';
 import 'api_config.dart';
 import 'student_session_manager.dart';
+import 'universal_notification_service.dart';
 
 class LoginScreen extends StatefulWidget {
   final String role;
@@ -32,7 +32,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _otpSent = false;
   final TextEditingController _mobileController = TextEditingController();
   final List<TextEditingController> _otpControllers =
-      List.generate(6, (_) => TextEditingController());
+  List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
   Timer? _timer;
   int _start = 30;
@@ -126,7 +126,7 @@ class _LoginScreenState extends State<LoginScreen> {
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (_) => const TeacherDashboardScreen()),
-          (route) => false,
+              (route) => false,
         );
       } else {
         debugPrint('[ERROR] Login failed. Response: $response');
@@ -193,6 +193,13 @@ class _LoginScreenState extends State<LoginScreen> {
         final user = savedSession['user'] as UserModel;
         final token = savedSession['token'] as String;
         await sessionManager.createSession(user, token, phoneNumber);
+
+        // ✅ Register FCM token for saved session
+        await UniversalNotificationService.instance.registerStudentDevice(
+          authToken: token,
+        );
+        debugPrint('[Student] ✅ FCM token registered for saved session');
+
         if (!mounted) return;
         Navigator.pushAndRemoveUntil(
           context,
@@ -213,6 +220,13 @@ class _LoginScreenState extends State<LoginScreen> {
         final parent = savedSession['parent'] as ParentModel;
         final token = savedSession['token'] as String;
         await parentSessionManager.createSession(parent, token, phoneNumber);
+
+        // ✅ Register FCM token for saved session
+        await UniversalNotificationService.instance.registerParentDevice(
+          authToken: token,
+        );
+        debugPrint('[Parent] ✅ FCM token registered for saved session');
+
         if (!mounted) return;
         Navigator.pushAndRemoveUntil(
           context,
@@ -237,6 +251,7 @@ class _LoginScreenState extends State<LoginScreen> {
       _isLoading = false;
     });
   }
+
   void _verifyOtp() async {
     String otp = _otpControllers.map((c) => c.text).join();
     if (otp.length != 6) {
@@ -263,6 +278,13 @@ class _LoginScreenState extends State<LoginScreen> {
           final sessionManager =
           Provider.of<SessionManager>(context, listen: false);
           await sessionManager.createSession(user, token, phoneNumber);
+
+          // ✅ Register FCM token after OTP verification
+          await UniversalNotificationService.instance.registerStudentDevice(
+            authToken: token,
+          );
+          debugPrint('[Student] ✅ FCM token registered after login');
+
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(builder: (_) => const StudentDashboard()),
@@ -276,6 +298,13 @@ class _LoginScreenState extends State<LoginScreen> {
           final parentSessionManager =
           Provider.of<ParentSessionManager>(context, listen: false);
           await parentSessionManager.createSession(parent, token, phoneNumber);
+
+          // ✅ Register FCM token after OTP verification
+          await UniversalNotificationService.instance.registerParentDevice(
+            authToken: token,
+          );
+          debugPrint('[Parent] ✅ FCM token registered after login');
+
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(builder: (_) => const ParentDashboardScreen()),
@@ -349,7 +378,21 @@ class _LoginScreenState extends State<LoginScreen> {
       final sessionManager = Provider.of<TeacherSessionManager>(context, listen: false);
       await sessionManager.saveSession(teacher, token);
       debugPrint('[DEBUG] Token saved: $token, User: ${teacher.fullName}');
-
+      print('\n\n');
+      print('╔════════════════════════════════════════════════════════════╗');
+      print('║              🔐 TEACHER LOGIN SUCCESSFUL                   ║');
+      print('╠════════════════════════════════════════════════════════════╣');
+      print('║                     AUTH TOKEN:                            ║');
+      print('╠════════════════════════════════════════════════════════════╣');
+      print('║ $token');
+      print('╠════════════════════════════════════════════════════════════╣');
+      print('║ Token Length: ${token.length}');
+      print('╚════════════════════════════════════════════════════════════╝');
+      print('\n\n');
+      await UniversalNotificationService.instance.registerTeacherDevice(
+        authToken: token,
+      );
+      debugPrint('[Teacher] ✅ FCM token registered after login');
       if (!mounted) return;
 
       // Navigate based on role
@@ -372,7 +415,7 @@ class _LoginScreenState extends State<LoginScreen> {
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => destination),
-        (route) => false,
+            (route) => false,
       );
     } catch (e, stack) {
       debugPrint('[ERROR] Exception during login: $e');
@@ -404,16 +447,16 @@ class _LoginScreenState extends State<LoginScreen> {
           onPressed: _isLoading
               ? null
               : () {
-                  if (_otpSent && isOtpRole) {
-                    setState(() {
-                      _otpSent = false;
-                      _timer?.cancel();
-                      _errorMessage = null;
-                    });
-                  } else {
-                    Navigator.of(context).pop();
-                  }
-                },
+            if (_otpSent && isOtpRole) {
+              setState(() {
+                _otpSent = false;
+                _timer?.cancel();
+                _errorMessage = null;
+              });
+            } else {
+              Navigator.of(context).pop();
+            }
+          },
         ),
       ),
       body: Stack(
@@ -458,10 +501,10 @@ class _LoginScreenState extends State<LoginScreen> {
           decoration: InputDecoration(
             hintText: 'Mobile Number',
             prefixIcon:
-                const Icon(Icons.phone_android_outlined, color: Colors.grey),
+            const Icon(Icons.phone_android_outlined, color: Colors.grey),
             prefixText: '+91 | ',
             prefixStyle:
-                const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             counterText: "",
             filled: true,
             fillColor: const Color(0xFFF7F7F7),
@@ -474,7 +517,7 @@ class _LoginScreenState extends State<LoginScreen> {
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
-            onPressed: _handleOtpLoginAttempt, // Changed from _handleStudentLoginAttempt
+            onPressed: _handleOtpLoginAttempt,
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF2A65F8),
               padding: const EdgeInsets.symmetric(vertical: 16),
