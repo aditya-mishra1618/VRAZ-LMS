@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:vraz_application/home_screen.dart';
 
 import 'attendance_report_screen.dart';
-import 'grievance_screen.dart';
+import 'grievance_screen.dart'; // This is for Grievances
 import 'notifications_screen.dart';
 import 'parent_teacher_meeting_screen.dart';
 import 'parents_dashboard.dart';
 import 'payments_screen.dart';
 import 'results_screen.dart';
-import 'support_chat_screen.dart';
+import 'support_ticket_screen.dart'; // Ensure this path is correct
+// import 'support_chat_screen.dart';
 import 'timetable_screen.dart';
 
 class ParentAppDrawer extends StatelessWidget {
@@ -48,11 +49,9 @@ class ParentAppDrawer extends StatelessWidget {
           _buildDrawerItem(
             context: context,
             icon: Icons.support_agent_outlined,
-            text: 'Support Chat',
-            screen: const GrievanceChatScreen(
-              grievanceTitle: 'Support Chat',
-              navigationSource: '',
-            ),
+            text: 'Support Chat', // Label remains the same
+            // --- FIX: Navigate to the SupportTicketScreen ---
+            screen: const SupportTicketScreen(),
           ),
           _buildDrawerItem(
             context: context,
@@ -121,6 +120,7 @@ class ParentAppDrawer extends StatelessWidget {
             (Route<dynamic> route) => false,
           );
         } else {
+          // Use pushReplacement to avoid building up the stack
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (context) => screen),

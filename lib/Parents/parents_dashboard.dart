@@ -7,7 +7,10 @@ import 'parent_app_drawer.dart';
 import 'parent_teacher_meeting_screen.dart';
 import 'payments_screen.dart';
 import 'results_screen.dart';
-import 'support_chat_screen.dart'; // Correct import
+// --- FIX: Removed old chat screen import ---
+// import 'support_chat_screen.dart';
+// --- FIX: Added new support ticket screen import ---
+import 'support_ticket_screen.dart'; // Make sure this file name is correct
 import 'timetable_screen.dart';
 
 class ParentDashboardScreen extends StatefulWidget {
@@ -109,10 +112,10 @@ class _ParentDashboardScreenState extends State<ParentDashboardScreen> {
       },
       {
         'icon': Icons.support_agent_outlined,
-        'label': 'Support Chat',
+        'label': 'Support Chat', // Label remains 'Support Chat'
         'colors': [Colors.cyan.shade100, Colors.cyan.shade200],
-        // --- FIX: Added required navigationSource argument ---
-        'screen': const GrievanceChatScreen(navigationSource: 'dashboard'),
+        // --- FIX: Navigates to the SupportTicketScreen ---
+        'screen': const SupportTicketScreen(),
       },
       {
         'icon': Icons.group_add_outlined,

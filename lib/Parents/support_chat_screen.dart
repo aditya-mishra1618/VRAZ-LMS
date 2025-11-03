@@ -1,27 +1,24 @@
 import 'package:flutter/material.dart';
 
-import 'Grievance_screen.dart';
 // Import the screens we might navigate back to
-import 'parents_dashboard.dart';
+import 'parents_dashboard.dart'; // Make sure this path is correct
+import 'support_ticket_screen.dart'; // Import the new list screen
 
-// Removed 'parent_app_drawer.dart' import
-
-class GrievanceChatScreen extends StatefulWidget {
+class SupportChatScreen extends StatefulWidget {
   final String? grievanceTitle;
-  // --- NEW: Parameter to track the source screen ---
-  final String navigationSource; // e.g., 'dashboard' or 'grievance'
+  final String navigationSource; // e.g., 'support_ticket_screen'
 
-  const GrievanceChatScreen({
+  const SupportChatScreen({
     super.key,
     this.grievanceTitle,
     required this.navigationSource, // Make it required
   });
 
   @override
-  State<GrievanceChatScreen> createState() => _GrievanceChatScreenState();
+  State<SupportChatScreen> createState() => _SupportChatScreenState();
 }
 
-class _GrievanceChatScreenState extends State<GrievanceChatScreen> {
+class _SupportChatScreenState extends State<SupportChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final List<Map<String, String>> _messages = [
     {
@@ -57,21 +54,25 @@ class _GrievanceChatScreenState extends State<GrievanceChatScreen> {
 
   // --- NEW: Back navigation logic ---
   void _navigateBack() {
-    Widget destinationScreen;
-    // Determine where to go based on the source
-    if (widget.navigationSource == 'grievance') {
-      destinationScreen = const GrievanceScreen();
-    } else {
-      // Default to dashboard if source is 'dashboard' or unknown
-      destinationScreen = const ParentDashboardScreen();
-    }
+    // This logic checks if the "SupportTicketScreen" is still in the navigation stack.
+    // If it is (e.g., we used Navigator.push), we can just pop.
+    // If it's not (e.g., if the app was closed and reopened), we navigate to the source.
 
-    // Use pushReplacement to avoid stacking screens when going "back"
-    // to a main navigation point.
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => destinationScreen),
-    );
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context); // Simple pop is usually best
+    } else {
+      // Fallback in case Navigator.canPop is false
+      Widget destinationScreen;
+      if (widget.navigationSource == 'support_ticket_screen') {
+        destinationScreen = const SupportTicketScreen();
+      } else {
+        destinationScreen = const ParentDashboardScreen();
+      }
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => destinationScreen),
+      );
+    }
   }
 
   @override
@@ -81,7 +82,6 @@ class _GrievanceChatScreenState extends State<GrievanceChatScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF0F4F8),
       appBar: AppBar(
-        // --- UPDATED: Use the new _navigateBack function ---
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.black54),
           onPressed: _navigateBack, // Call the custom back logic
@@ -120,7 +120,6 @@ class _GrievanceChatScreenState extends State<GrievanceChatScreen> {
   }
 
   Widget _buildMessageBubble(String text, bool isParent) {
-    // ... (This widget remains the same)
     return Align(
       alignment: isParent ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -157,7 +156,6 @@ class _GrievanceChatScreenState extends State<GrievanceChatScreen> {
   }
 
   Widget _buildMessageInputField() {
-    // ... (This widget remains the same)
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       decoration: BoxDecoration(

@@ -13,27 +13,32 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
-  // Controller to manage video playback
-  late VideoPlayerController _controller;
+  // NEW: Change from 'late' to a nullable type. This is much safer.
+  VideoPlayerController? _controller;
 
   @override
   void initState() {
     super.initState();
 
-    // Initialize the video controller with your video asset
-    // IMPORTANT: Make sure you have a video file at this path in your project.
-    _controller = VideoPlayerController.asset('assets/videos/splash_video.mp4')
-      ..initialize().then((_) {
-        // Ensure the first frame is shown after the video is initialized
-        setState(() {});
-        // Start playing the video
-        _controller.play();
-        // Set the video to loop for a continuous effect
-        _controller.setLooping(true);
-      });
+    // Assign the controller
+    _controller = VideoPlayerController.asset('assets/videos/splash_video.mp4');
 
-    // This timer will navigate to the HomeScreen after 5 seconds, regardless of video length.
-    Timer(const Duration(seconds: 8), () {
+    // Use the '!' operator because we *just* assigned it.
+    _controller!.initialize().then((_) {
+      // We must check if the widget is still mounted before calling setState
+      if (mounted) {
+        setState(() {}); // Trigger rebuild once video is initialized
+        _controller!.play();
+        _controller!.setLooping(true);
+      }
+    }).catchError((error) {
+      // If initialization fails, print the error.
+      print("Error initializing video player: $error");
+      // The build method will just keep showing the spinner, which is safe.
+    });
+
+    // This timer will navigate to the HomeScreen after 8.2 seconds.
+    Timer(const Duration(milliseconds: 8200), () {
       if (mounted) {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const HomeScreen()),
@@ -44,28 +49,36 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   void dispose() {
-    // It's important to dispose of the controller to free up resources.
-    _controller.dispose();
+    // NEW: Use the null-aware operator '?' to safely call dispose.
+    _controller?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // A black background is often best for video splash screens
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.white,
       body: Center(
-        // Use a ternary operator to check if the video has been initialized.
-        child: _controller.value.isInitialized
+        // ********** KEY CHANGE **********
+        // We add two checks:
+        // 1. Is the controller itself null?
+        // 2. Is the controller's value initialized?
+        // Only if BOTH are true do we show the video.
+        child: (_controller != null && _controller!.value.isInitialized)
             ?
-            // If initialized, display the video in an AspectRatio widget to maintain its shape.
-            AspectRatio(
-                aspectRatio: _controller.value.aspectRatio,
-                child: VideoPlayer(_controller),
+            // If video is ready, show it
+            FittedBox(
+                fit: BoxFit.contain,
+                child: SizedBox(
+                  // Use '!' because we've already checked for null
+                  width: _controller!.value.size.width,
+                  height: _controller!.value.size.height,
+                  child: VideoPlayer(_controller!),
+                ),
               )
             :
-            // While the video is loading, show a loading indicator or a static image.
-            const CircularProgressIndicator(color: Colors.white),
+            // Otherwise, show the loading spinner. This is the safe fallback.
+            const CircularProgressIndicator(color: Colors.blue),
       ),
     );
   }
