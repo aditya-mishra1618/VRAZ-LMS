@@ -460,7 +460,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       );
     }
 
-    final lectures = data['lectures'] as List<Map<String, dynamic>>;
+    // ✅ FIXED: Proper casting
+    final lectures = (data['lectures'] as List)
+        .map((e) => e as Map<String, dynamic>)
+        .toList();
+
     return ListView.separated(
       physics: const NeverScrollableScrollPhysics(),
       shrinkWrap: true,

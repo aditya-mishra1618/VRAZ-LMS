@@ -2,10 +2,10 @@
 // This file handles all API calls for assignments
 
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 
 import '../models/assignment_model.dart';
-
 
 class AssignmentApiService {
   // Base URL for the API
@@ -132,20 +132,25 @@ class AssignmentApiService {
     }
   }
 
-  /// Fetches a specific assignment by ID
-  /// Returns a single AssignmentResponse object
-  Future<AssignmentResponse> fetchAssignmentById(int assignmentId) async {
-    print('🚀 DEBUG: Fetching assignment with ID: $assignmentId');
+  /// Fetches detailed assignment information by ID
+  /// Returns a single AssignmentResponse object with full MCQ questions
+  Future<AssignmentResponse> getAssignmentDetails(int assignmentId) async {
+    print('🚀 DEBUG: Starting getAssignmentDetails for ID: $assignmentId');
 
     if (!_hasValidToken()) {
-      print('❌ DEBUG: Cannot fetch assignment - No authentication token');
+      print('❌ DEBUG: Cannot fetch assignment details - No authentication token');
       throw Exception('Authentication token not found. Please login again.');
     }
 
-    final url = Uri.parse('$baseUrl/students/my/assignments/$assignmentId');
+    print('🔐 DEBUG: Using Bearer Token: ${_bearerToken!.substring(0, 20)}...');
+
+    final url = Uri.parse('$baseUrl/students/my/getAssignmentDetails/$assignmentId');
     print('📡 DEBUG: API URL: $url');
 
     try {
+      print('⏳ DEBUG: Sending GET request for assignment details...');
+      print('📅 DEBUG: Request timestamp: ${DateTime.now().toUtc().toIso8601String()}');
+
       final response = await http.get(
         url,
         headers: {
@@ -155,30 +160,281 @@ class AssignmentApiService {
       ).timeout(
         const Duration(seconds: 30),
         onTimeout: () {
-          print('⏰ DEBUG: Request timeout for assignment $assignmentId');
+          print('⏰ DEBUG: Request timeout after 30 seconds');
           throw Exception('Request timeout. Please check your internet connection.');
         },
       );
 
       print('📥 DEBUG: Response Status Code: ${response.statusCode}');
+      print('⏰ DEBUG: Response received at: ${DateTime.now().toUtc().toIso8601String()}');
 
       if (response.statusCode == 200) {
-        print('✅ DEBUG: Successfully fetched assignment $assignmentId');
-        final jsonData = json.decode(response.body);
-        return AssignmentResponse.fromJson(jsonData);
+        print('✅ DEBUG: Assignment details fetched successfully!');
+        print('📦 DEBUG: Response Body Length: ${response.body.length} characters');
+
+        final Map<String, dynamic> jsonData = json.decode(response.body);
+        final assignment = AssignmentResponse.fromJson(jsonData);
+
+        print('✅ DEBUG: Successfully parsed assignment details');
+        print('📝 DEBUG: Assignment ID: ${assignment.id}');
+        print('📝 DEBUG: Title: ${assignment.assignmentTemplate.title}');
+        print('📝 DEBUG: Type: ${assignment.assignmentTemplate.type}');
+        print('📝 DEBUG: Description: ${assignment.assignmentTemplate.description}');
+
+        if (assignment.assignmentTemplate.mcqQuestions != null) {
+          print('📝 DEBUG: MCQ Questions Count: ${assignment.assignmentTemplate.mcqQuestions!.length}');
+          for (var i = 0; i < assignment.assignmentTemplate.mcqQuestions!.length; i++) {
+            final q = assignment.assignmentTemplate.mcqQuestions![i];
+            print('   Q${i + 1}: ${q.questionText}');
+            print('   Options: ${q.options.length}');
+          }
+        }
+
+        return assignment;
       } else if (response.statusCode == 401) {
-        print('❌ DEBUG: Unauthorized access for assignment $assignmentId');
+        print('❌ DEBUG: Unauthorized - Invalid or expired token');
         throw Exception('Session expired. Please login again.');
       } else if (response.statusCode == 404) {
-        print('❌ DEBUG: Assignment $assignmentId not found');
+        print('❌ DEBUG: Assignment not found');
         throw Exception('Assignment not found.');
       } else {
-        print('❌ DEBUG: Failed to fetch assignment $assignmentId');
+        print('❌ DEBUG: API Error - Status: ${response.statusCode}');
         print('❌ DEBUG: Response Body: ${response.body}');
-        throw Exception('Failed to load assignment. Status: ${response.statusCode}');
+        throw Exception('Failed to load assignment details. Status: ${response.statusCode}');
       }
+    } on http.ClientException catch (e) {
+      print('❌ DEBUG: Network error occurred');
+      print('❌ DEBUG: Error: $e');
+      throw Exception('Network error. Please check your internet connection.');
     } catch (e) {
-      print('❌ DEBUG: Exception in fetchAssignmentById: $e');
+      print('❌ DEBUG: Exception in getAssignmentDetails: $e');
+      rethrow;
+    }
+  }
+
+  /// ✅ NEW: Upload file and get URL
+  /// Uploads a file to the server and returns the URL
+  Future<String> uploadFile(File file) async {
+    print('🚀 DEBUG: Starting file upload');
+    print('📁 DEBUG: File path: ${file.path}');
+    print('📁 DEBUG: File size: ${file.lengthSync()} bytes');
+
+    if (!_hasValidToken()) {
+      print('❌ DEBUG: Cannot upload file - No authentication token');
+      throw Exception('Authentication token not found. Please login again.');
+    }
+
+    final url = Uri.parse('$baseUrl/students/my/doubts/uploadMedia');
+    print('📡 DEBUG: Upload URL: $url');
+
+    try {
+      // Create multipart request
+      var request = http.MultipartRequest('POST', url);
+
+      // Add authorization header
+      request.headers['Authorization'] = 'Bearer $_bearerToken';
+
+      // Add file to request
+      var multipartFile = await http.MultipartFile.fromPath(
+        'file',
+        file.path,
+      );
+      request.files.add(multipartFile);
+
+      print('⏳ DEBUG: Sending file upload request...');
+      print('📅 DEBUG: Upload started at: ${DateTime.now().toUtc().toIso8601String()}');
+
+      // Send request
+      var streamedResponse = await request.send().timeout(
+        const Duration(seconds: 60),
+        onTimeout: () {
+          print('⏰ DEBUG: Upload timeout after 60 seconds');
+          throw Exception('Upload timeout. Please check your internet connection.');
+        },
+      );
+
+      // Get response
+      var response = await http.Response.fromStream(streamedResponse);
+
+      print('📥 DEBUG: Upload Response Status Code: ${response.statusCode}');
+      print('📥 DEBUG: Upload Response Body: ${response.body}');
+      print('⏰ DEBUG: Upload completed at: ${DateTime.now().toUtc().toIso8601String()}');
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        print('✅ DEBUG: File uploaded successfully!');
+
+        final responseData = json.decode(response.body);
+
+        // Extract URL from response
+        // Adjust this based on your actual API response structure
+        String fileUrl;
+        if (responseData is Map && responseData.containsKey('url')) {
+          fileUrl = responseData['url'];
+        } else if (responseData is Map && responseData.containsKey('fileUrl')) {
+          fileUrl = responseData['fileUrl'];
+        } else if (responseData is String) {
+          fileUrl = responseData;
+        } else {
+          print('⚠️ DEBUG: Unexpected response format: $responseData');
+          throw Exception('Unexpected response format from upload API');
+        }
+
+        print('✅ DEBUG: File URL: $fileUrl');
+        return fileUrl;
+      } else if (response.statusCode == 401) {
+        print('❌ DEBUG: Unauthorized - Invalid or expired token');
+        throw Exception('Session expired. Please login again.');
+      } else {
+        print('❌ DEBUG: Upload failed - Status: ${response.statusCode}');
+        throw Exception('Failed to upload file. Status: ${response.statusCode}');
+      }
+    } on http.ClientException catch (e) {
+      print('❌ DEBUG: Network error during upload');
+      print('❌ DEBUG: Error: $e');
+      throw Exception('Network error. Please check your internet connection.');
+    } catch (e) {
+      print('❌ DEBUG: Exception in uploadFile: $e');
+      rethrow;
+    }
+  }
+
+  /// Submit MCQ Assignment
+  /// Submits MCQ answers for an assignment
+  Future<void> submitMcqAssignment({
+    required int assignmentId,
+    required Map<String, String> mcqAnswers,
+  }) async {
+    print('🚀 DEBUG: Starting MCQ assignment submission');
+    print('📝 DEBUG: Assignment ID: $assignmentId');
+    print('📝 DEBUG: MCQ Answers: $mcqAnswers');
+
+    if (!_hasValidToken()) {
+      print('❌ DEBUG: Cannot submit - No authentication token');
+      throw Exception('Authentication token not found. Please login again.');
+    }
+
+    final url = Uri.parse('$baseUrl/students/my/assignmentSubmit/$assignmentId');
+    print('📡 DEBUG: API URL: $url');
+
+    final requestBody = {
+      'mcqAnswers': mcqAnswers,
+    };
+
+    print('📤 DEBUG: Request Body: ${json.encode(requestBody)}');
+
+    try {
+      print('⏳ DEBUG: Sending POST request...');
+      print('📅 DEBUG: Request timestamp: ${DateTime.now().toUtc().toIso8601String()}');
+
+      final response = await http.post(
+        url,
+        headers: {
+          'Authorization': 'Bearer $_bearerToken',
+          'Content-Type': 'application/json',
+        },
+        body: json.encode(requestBody),
+      ).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          print('⏰ DEBUG: Request timeout after 30 seconds');
+          throw Exception('Request timeout. Please check your internet connection.');
+        },
+      );
+
+      print('📥 DEBUG: Response Status Code: ${response.statusCode}');
+      print('📥 DEBUG: Response Body: ${response.body}');
+      print('⏰ DEBUG: Response received at: ${DateTime.now().toUtc().toIso8601String()}');
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        print('✅ DEBUG: MCQ assignment submitted successfully!');
+      } else if (response.statusCode == 401) {
+        print('❌ DEBUG: Unauthorized - Invalid or expired token');
+        throw Exception('Session expired. Please login again.');
+      } else if (response.statusCode == 400) {
+        print('❌ DEBUG: Bad request');
+        throw Exception('Invalid submission data. Please check your answers.');
+      } else {
+        print('❌ DEBUG: Submission failed - Status: ${response.statusCode}');
+        throw Exception('Failed to submit assignment. Status: ${response.statusCode}');
+      }
+    } on http.ClientException catch (e) {
+      print('❌ DEBUG: Network error occurred');
+      print('❌ DEBUG: Error: $e');
+      throw Exception('Network error. Please check your internet connection.');
+    } catch (e) {
+      print('❌ DEBUG: Exception in submitMcqAssignment: $e');
+      rethrow;
+    }
+  }
+
+  /// Submit Theory Assignment
+  /// Submits theory assignment with text and optional file attachments
+  Future<void> submitTheoryAssignment({
+    required int assignmentId,
+    required String solutionText,
+    List<String>? solutionAttachments,
+  }) async {
+    print('🚀 DEBUG: Starting Theory assignment submission');
+    print('📝 DEBUG: Assignment ID: $assignmentId');
+    print('📝 DEBUG: Solution Text: $solutionText');
+    print('📝 DEBUG: Attachments: ${solutionAttachments ?? []}');
+
+    if (!_hasValidToken()) {
+      print('❌ DEBUG: Cannot submit - No authentication token');
+      throw Exception('Authentication token not found. Please login again.');
+    }
+
+    final url = Uri.parse('$baseUrl/students/my/assignmentSubmit/$assignmentId');
+    print('📡 DEBUG: API URL: $url');
+
+    final requestBody = {
+      'solutionText': solutionText,
+      'solutionAttachments': solutionAttachments ?? [],
+    };
+
+    print('📤 DEBUG: Request Body: ${json.encode(requestBody)}');
+
+    try {
+      print('⏳ DEBUG: Sending POST request...');
+      print('📅 DEBUG: Request timestamp: ${DateTime.now().toUtc().toIso8601String()}');
+
+      final response = await http.post(
+        url,
+        headers: {
+          'Authorization': 'Bearer $_bearerToken',
+          'Content-Type': 'application/json',
+        },
+        body: json.encode(requestBody),
+      ).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          print('⏰ DEBUG: Request timeout after 30 seconds');
+          throw Exception('Request timeout. Please check your internet connection.');
+        },
+      );
+
+      print('📥 DEBUG: Response Status Code: ${response.statusCode}');
+      print('📥 DEBUG: Response Body: ${response.body}');
+      print('⏰ DEBUG: Response received at: ${DateTime.now().toUtc().toIso8601String()}');
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        print('✅ DEBUG: Theory assignment submitted successfully!');
+      } else if (response.statusCode == 401) {
+        print('❌ DEBUG: Unauthorized - Invalid or expired token');
+        throw Exception('Session expired. Please login again.');
+      } else if (response.statusCode == 400) {
+        print('❌ DEBUG: Bad request');
+        throw Exception('Invalid submission data. Please check your input.');
+      } else {
+        print('❌ DEBUG: Submission failed - Status: ${response.statusCode}');
+        throw Exception('Failed to submit assignment. Status: ${response.statusCode}');
+      }
+    } on http.ClientException catch (e) {
+      print('❌ DEBUG: Network error occurred');
+      print('❌ DEBUG: Error: $e');
+      throw Exception('Network error. Please check your internet connection.');
+    } catch (e) {
+      print('❌ DEBUG: Exception in submitTheoryAssignment: $e');
       rethrow;
     }
   }
