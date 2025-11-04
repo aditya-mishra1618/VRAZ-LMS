@@ -39,23 +39,17 @@ class _TimetableScreenState extends State<TimetableScreen> {
     _weekEnd = weekDates['end']!;
 
     print('[TimetableScreen] Current week: ${TimetableApi.getDateRangeString(_weekStart, _weekEnd)}');
-    print('[TimetableScreen] Week start: $_weekStart');
-    print('[TimetableScreen] Week end: $_weekEnd');
   }
 
   Future<void> _loadTimetable() async {
     setState(() => _isLoading = true);
 
     try {
-      // 1. Get auth token and selected child
+      // Get auth token and selected child
       final prefs = await SharedPreferences.getInstance();
       _authToken = prefs.getString('parent_auth_token');
       _selectedChildId = prefs.getInt('selected_child_id');
       _selectedChildName = prefs.getString('selected_child_name');
-
-      print('[TimetableScreen] Auth Token: ${_authToken != null ? "Found" : "Missing"}');
-      print('Auth token: ${_authToken ?? "null"}');
-      print('[TimetableScreen] Selected Child ID: $_selectedChildId');
 
       if (_authToken == null || _authToken!.isEmpty) {
         _showError('Session expired. Please login again.');
@@ -67,8 +61,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
         return;
       }
 
-      // 2. Fetch timetable from API
-      print('[TimetableScreen] 🔄 Fetching timetable...');
+      // Fetch timetable from API
       _weeklyTimetable = await TimetableApi.fetchChildTimetable(
         authToken: _authToken!,
         childId: _selectedChildId!,
@@ -76,15 +69,11 @@ class _TimetableScreenState extends State<TimetableScreen> {
         endDate: _weekEnd,
       );
 
-      if (_weeklyTimetable != null) {
-        print('[TimetableScreen] ✅ Loaded ${_weeklyTimetable!.entries.length} entries');
-      } else {
-        print('[TimetableScreen] ⚠️ No timetable data received');
+      if (_weeklyTimetable != null && _weeklyTimetable!.entries.isEmpty) {
         _showInfo('No timetable available for this week.');
       }
-    } catch (e, stackTrace) {
+    } catch (e) {
       print('[TimetableScreen] ❌ Error: $e');
-      print('[TimetableScreen] Stack trace: $stackTrace');
       _showError('Failed to load timetable. Please try again.');
     } finally {
       if (mounted) {
@@ -128,10 +117,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
         _weekStart = prevWeek['start']!;
         _weekEnd = prevWeek['end']!;
       }
-      // Set selected date to the start of the new week (Monday)
       _selectedDate = _weekStart;
-
-      print('[TimetableScreen] Navigated to week: ${TimetableApi.getDateRangeString(_weekStart, _weekEnd)}');
     });
     _loadTimetable();
   }
@@ -251,18 +237,23 @@ class _TimetableScreenState extends State<TimetableScreen> {
         IconButton(
           onPressed: _isLoading ? null : () => _navigateWeek(false),
           icon: const Icon(Icons.arrow_back_ios, color: Colors.black54),
+          tooltip: 'Previous Week',
         ),
-        Text(
-          '${DateFormat('MMM dd').format(_weekStart)} - ${DateFormat('MMM dd, yyyy').format(_weekEnd)}',
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
+        Expanded(
+          child: Text(
+            '${DateFormat('MMM dd').format(_weekStart)} - ${DateFormat('MMM dd, yyyy').format(_weekEnd)}',
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
+            textAlign: TextAlign.center,
           ),
         ),
         IconButton(
           onPressed: _isLoading ? null : () => _navigateWeek(true),
           icon: const Icon(Icons.arrow_forward_ios, color: Colors.black54),
+          tooltip: 'Next Week',
         ),
       ],
     );
@@ -358,7 +349,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
 
   Widget _buildNoClassesCard() {
     return Container(
-      padding: const EdgeInsets.all(32),
+      padding: const EdgeInsets.all(40),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(15),
@@ -373,14 +364,22 @@ class _TimetableScreenState extends State<TimetableScreen> {
       child: Center(
         child: Column(
           children: [
-            Icon(Icons.event_busy, size: 60, color: Colors.grey[400]),
+            Icon(Icons.event_busy, size: 64, color: Colors.grey[400]),
             const SizedBox(height: 16),
             Text(
               'No classes scheduled',
               style: TextStyle(
-                fontSize: 16,
+                fontSize: 18,
                 color: Colors.grey[600],
-                fontWeight: FontWeight.w500,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              DateFormat('EEEE, MMM dd').format(_selectedDate),
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[500],
               ),
             ),
           ],
@@ -394,45 +393,82 @@ class _TimetableScreenState extends State<TimetableScreen> {
       margin: const EdgeInsets.only(bottom: 16),
       elevation: 0,
       color: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: Colors.blue.shade50,
-          child: Icon(entry.icon, color: Colors.blueAccent),
-        ),
-        title: Text(
-          entry.subjectName,
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.grey.shade200),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Row(
           children: [
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                const Icon(Icons.access_time, size: 14, color: Colors.black54),
-                const SizedBox(width: 4),
-                Text(entry.timeRange),
-              ],
+            CircleAvatar(
+              radius: 28,
+              backgroundColor: Colors.blue.shade50,
+              child: Icon(entry.icon, color: Colors.blueAccent, size: 28),
             ),
-            const SizedBox(height: 2),
-            Row(
-              children: [
-                const Icon(Icons.person, size: 14, color: Colors.black54),
-                const SizedBox(width: 4),
-                Text('Faculty: ${entry.teacherName}'),
-              ],
-            ),
-            if (entry.roomNumber != null) ...[
-              const SizedBox(height: 2),
-              Row(
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.room, size: 14, color: Colors.black54),
-                  const SizedBox(width: 4),
-                  Text('Room: ${entry.roomNumber}'),
+                  Text(
+                    entry.subjectName,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
+                      const SizedBox(width: 6),
+                      Text(
+                        entry.timeRange,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey[700],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(Icons.person, size: 16, color: Colors.grey[600]),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          entry.teacherName,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[700],
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (entry.roomNumber != null) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(Icons.room, size: 16, color: Colors.grey[600]),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Room ${entry.roomNumber}',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[700],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
-            ],
+            ),
           ],
         ),
       ),
@@ -450,13 +486,14 @@ class _TimetableScreenState extends State<TimetableScreen> {
             const SnackBar(
               content: Text('📥 Downloading timetable...'),
               backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
             ),
           );
         },
         icon: const Icon(Icons.download, color: Colors.white),
         label: const Text(
           'Download Timetable',
-          style: TextStyle(color: Colors.white),
+          style: TextStyle(color: Colors.white, fontSize: 16),
         ),
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.blueAccent,
@@ -464,6 +501,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
+          elevation: 2,
         ),
       ),
     );

@@ -24,13 +24,49 @@ class TimetableEntry {
   });
 
   factory TimetableEntry.fromJson(Map<String, dynamic> json) {
-    // Parse date
+    // ✅ FIXED: Extract date from startTime ISO string
     DateTime parsedDate;
-    if (json['date'] != null) {
+    DateTime? parsedStartTime;
+    DateTime? parsedEndTime;
+
+    if (json['startTime'] != null) {
+      parsedStartTime = DateTime.tryParse(json['startTime'].toString());
+    }
+
+    if (json['endTime'] != null) {
+      parsedEndTime = DateTime.tryParse(json['endTime'].toString());
+    }
+
+    // Use startTime for the date, or fall back to 'date' field or now
+    if (parsedStartTime != null) {
+      parsedDate = DateTime(
+        parsedStartTime.year,
+        parsedStartTime.month,
+        parsedStartTime.day,
+      );
+    } else if (json['date'] != null) {
       parsedDate = DateTime.tryParse(json['date'].toString()) ?? DateTime.now();
     } else {
       parsedDate = DateTime.now();
     }
+
+    // ✅ FIXED: Format times as HH:MM from ISO strings
+    String formattedStartTime = '09:00';
+    String formattedEndTime = '10:00';
+
+    if (parsedStartTime != null) {
+      formattedStartTime = _formatTime(parsedStartTime);
+    } else if (json['startTime'] != null && json['startTime'].toString().contains(':')) {
+      formattedStartTime = json['startTime'].toString().split('T').last.substring(0, 5);
+    }
+
+    if (parsedEndTime != null) {
+      formattedEndTime = _formatTime(parsedEndTime);
+    } else if (json['endTime'] != null && json['endTime'].toString().contains(':')) {
+      formattedEndTime = json['endTime'].toString().split('T').last.substring(0, 5);
+    }
+
+    print('[TimetableEntry] Parsed entry: ${json['id']} - Date: $parsedDate, Time: $formattedStartTime-$formattedEndTime');
 
     return TimetableEntry(
       id: json['id'] ?? json['_id'] ?? 0,
@@ -42,13 +78,20 @@ class TimetableEntry {
           json['teacher']?['fullName'] ??
           json['facultyName'] ??
           'Unknown Teacher',
-      startTime: json['startTime'] ?? json['start_time'] ?? '09:00',
-      endTime: json['endTime'] ?? json['end_time'] ?? '10:00',
+      startTime: formattedStartTime,
+      endTime: formattedEndTime,
       dayOfWeek: json['dayOfWeek'] ?? json['day'] ?? _getDayName(parsedDate.weekday),
       date: parsedDate,
       roomNumber: json['roomNumber']?.toString() ?? json['room']?.toString(),
       batchName: json['batchName']?.toString() ?? json['batch']?['name']?.toString(),
     );
+  }
+
+  // ✅ NEW: Helper to format DateTime to HH:MM
+  static String _formatTime(DateTime dateTime) {
+    final hour = dateTime.hour.toString().padLeft(2, '0');
+    final minute = dateTime.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
   }
 
   static String _getDayName(int weekday) {
@@ -85,7 +128,7 @@ class TimetableEntry {
 
   @override
   String toString() {
-    return 'TimetableEntry(id: $id, subject: $subjectName, date: $date)';
+    return 'TimetableEntry(id: $id, subject: $subjectName, date: $date, time: $timeRange)';
   }
 }
 
@@ -116,12 +159,19 @@ class WeeklyTimetable {
 
   // Get entries for a specific date
   List<TimetableEntry> getEntriesForDate(DateTime date) {
-    return entries.where((entry) {
-      return entry.date.year == date.year &&
-          entry.date.month == date.month &&
-          entry.date.day == date.day;
-    }).toList()
-      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+    final dateOnly = DateTime(date.year, date.month, date.day);
+
+    final filtered = entries.where((entry) {
+      final entryDateOnly = DateTime(entry.date.year, entry.date.month, entry.date.day);
+      return entryDateOnly.isAtSameMomentAs(dateOnly);
+    }).toList();
+
+    // Sort by start time
+    filtered.sort((a, b) => a.startTime.compareTo(b.startTime));
+
+    print('[WeeklyTimetable] Filtering for date: $dateOnly, found ${filtered.length} entries');
+
+    return filtered;
   }
 
   // Get entries grouped by day

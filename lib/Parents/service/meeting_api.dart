@@ -4,14 +4,11 @@ import '../../api_config.dart';
 import '../models/meeting_model.dart';
 
 class MeetingApi {
-  static Future<List<ParentTeacherMeeting>> fetchMeetings({
-    required String authToken,
-  }) async {
-    final url = Uri.parse(
-      '${ApiConfig.baseUrl}/api/parentMobile/my/ptm/get',
-    );
+  /// Fetch all meetings for parent
+  static Future<List<Meeting>> fetchMeetings({required String authToken}) async {
+    final url = Uri.parse('${ApiConfig.baseUrl}/api/parentMobile/my/ptm/get');
 
-    print('[MeetingApi] 👨‍🏫 Fetching meetings...');
+    print('[MeetingApi] 📅 GET $url');
 
     try {
       final response = await http.get(
@@ -22,27 +19,56 @@ class MeetingApi {
         },
       );
 
-      print('[MeetingApi] Response status: ${response.statusCode}');
+      print('[MeetingApi] Status: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        List<dynamic> meetingsData = data is List ? data : [];
+
+        List<dynamic> meetingsData;
+        if (data is List) {
+          meetingsData = data;
+        } else if (data is Map<String, dynamic>) {
+          meetingsData = data['meetings'] ?? data['data'] ?? data['ptms'] ?? [];
+        } else {
+          return [];
+        }
 
         final meetings = meetingsData
-            .map((e) => ParentTeacherMeeting.fromJson(e as Map<String, dynamic>))
+            .map((e) {
+          try {
+            return Meeting.fromJson(e as Map<String, dynamic>);
+          } catch (error) {
+            print('[MeetingApi] ⚠️ Parse error: $error');
+            return null;
+          }
+        })
+            .whereType<Meeting>()
             .toList();
 
-        print('[MeetingApi] ✅ Parsed ${meetings.length} meetings');
+        print('[MeetingApi] ✅ Loaded ${meetings.length} meetings');
+
+        // Debug: Print meetings with AWAITING_PARENT status
+        final awaitingMeetings = meetings.where((m) => m.status == 'AWAITING_PARENT').toList();
+        if (awaitingMeetings.isNotEmpty) {
+          print('[MeetingApi] 🔔 ${awaitingMeetings.length} meetings awaiting parent response');
+          for (var m in awaitingMeetings) {
+            print('[MeetingApi]   - ID: ${m.id}, Status: ${m.status}, Initiated: ${m.initiatedBy}');
+          }
+        }
+
         return meetings;
+      } else {
+        print('[MeetingApi] ❌ Failed: ${response.statusCode}');
+        return [];
       }
-      return [];
-    } catch (e) {
-      print('[MeetingApi] ❌ ERROR: $e');
+    } catch (e, stackTrace) {
+      print('[MeetingApi] ❌ Error: $e');
+      print('[MeetingApi] Stack: $stackTrace');
       return [];
     }
   }
 
-  // ✅ NEW: Create meeting request
+  /// Create new meeting request
   static Future<bool> createMeetingRequest({
     required String authToken,
     required int admissionId,
@@ -50,25 +76,19 @@ class MeetingApi {
     required String reason,
     required List<DateTime> requestedTimeSlots,
   }) async {
-    final url = Uri.parse(
-      '${ApiConfig.baseUrl}/api/parentMobile/ptm/create',
-    );
+    final url = Uri.parse('${ApiConfig.baseUrl}/api/parentMobile/my/ptm/request');
 
-    print('[MeetingApi] 📝 Creating meeting request...');
-    print('[MeetingApi] POST $url');
+    final body = {
+      'admissionId': admissionId,
+      'teacherId': teacherId,
+      'reason': reason,
+      'requestedTimeSlots': requestedTimeSlots.map((dt) => dt.toIso8601String()).toList(),
+    };
+
+    print('[MeetingApi] 📝 POST $url');
+    print('[MeetingApi] Body: ${json.encode(body)}');
 
     try {
-      final body = {
-        'admissionId': admissionId,
-        'teacherId': teacherId,
-        'reason': reason,
-        'requestedTimeSlots': requestedTimeSlots
-            .map((slot) => slot.toUtc().toIso8601String())
-            .toList(),
-      };
-
-      print('[MeetingApi] Request body: ${json.encode(body)}');
-
       final response = await http.post(
         url,
         headers: {
@@ -78,19 +98,51 @@ class MeetingApi {
         body: json.encode(body),
       );
 
-      print('[MeetingApi] Response status: ${response.statusCode}');
-      print('[MeetingApi] Response body: ${response.body}');
+      print('[MeetingApi] Status: ${response.statusCode}');
+      print('[MeetingApi] Response: ${response.body}');
 
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        print('[MeetingApi] ✅ Meeting request created successfully');
+      return response.statusCode == 200 || response.statusCode == 201;
+    } catch (e) {
+      print('[MeetingApi] ❌ Error: $e');
+      return false;
+    }
+  }
+
+  /// Update meeting status (Accept/Decline)
+  static Future<bool> updateMeetingStatus({
+    required String authToken,
+    required int meetingId,
+    required String newStatus,
+  }) async {
+    final url = Uri.parse('${ApiConfig.baseUrl}/api/parentMobile/my/ptm/update/$meetingId');
+
+    final body = {'status': newStatus};
+
+    print('[MeetingApi] 🔄 PUT $url');
+    print('[MeetingApi] Body: ${json.encode(body)}');
+
+    try {
+      final response = await http.put(
+        url,
+        headers: {
+          'Authorization': 'Bearer $authToken',
+          'Content-Type': 'application/json',
+        },
+        body: json.encode(body),
+      );
+
+      print('[MeetingApi] Status: ${response.statusCode}');
+      print('[MeetingApi] Response: ${response.body}');
+
+      if (response.statusCode == 200) {
+        print('[MeetingApi] ✅ Status updated to $newStatus');
         return true;
       } else {
-        print('[MeetingApi] ❌ Failed to create meeting: ${response.statusCode}');
+        print('[MeetingApi] ❌ Failed to update');
         return false;
       }
-    } catch (e, stackTrace) {
-      print('[MeetingApi] ❌ ERROR: $e');
-      print('[MeetingApi] Stack trace: $stackTrace');
+    } catch (e) {
+      print('[MeetingApi] ❌ Error: $e');
       return false;
     }
   }

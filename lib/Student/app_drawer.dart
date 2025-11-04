@@ -7,6 +7,7 @@ import 'package:vraz_application/home_screen.dart';
 import 'package:vraz_application/student_session_manager.dart';
 import 'package:vraz_application/universal_notification_service.dart';
 
+import '../student_profile_provider.dart';
 import 'assignment.dart';
 import 'attendance.dart';
 import 'courses.dart';
@@ -26,102 +27,123 @@ class AppDrawer extends StatelessWidget {
     final sessionManager = Provider.of<SessionManager>(context, listen: false);
 
     return Drawer(
-      child: ListView(
-        padding: EdgeInsets.zero,
-        children: <Widget>[
-          const UserAccountsDrawerHeader(
-            accountName: Text(
-              'Aryan Sharma',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-            ),
-            accountEmail: Text('aryan.sharma@example.com'),
-            currentAccountPicture: CircleAvatar(
-              backgroundImage: AssetImage('assets/profile.png'),
-            ),
-            decoration: BoxDecoration(
-              color: Colors.blueAccent,
-            ),
-          ),
-          _buildDrawerItem(
-            icon: Icons.dashboard_outlined,
-            text: 'Dashboard',
-            onTap: () => Navigator.pop(context),
-          ),
-          _buildDrawerItem(
-            icon: Icons.school_outlined,
-            text: 'Courses',
-            onTap: () => _navigateToScreen(context, const CoursesScreen()),
-          ),
-          _buildDrawerItem(
-            icon: Icons.calendar_today_outlined,
-            text: 'Attendance',
-            onTap: () => _navigateToScreen(context, const AttendanceScreen()),
-          ),
-          _buildDrawerItem(
-            icon: Icons.schedule_outlined,
-            text: 'Timetable',
-            onTap: () => _navigateToScreen(context, const TimetableScreen()),
-          ),
-          _buildDrawerItem(
-            icon: Icons.question_answer_outlined,
-            text: 'Doubt Lectures',
-            onTap: () => _navigateToScreen(context, const DoubtLectureScreen()),
-          ),
-          _buildDrawerItem(
-            icon: Icons.assignment_outlined,
-            text: 'Assignments',
-            onTap: () => _navigateToScreen(context, const AssignmentsScreen()),
-          ),
-          _buildDrawerItem(
-            icon: Icons.help_outline,
-            text: 'Doubts',
-            onTap: () => _navigateToScreen(context, const DoubtsScreen()),
-          ),
-          _buildDrawerItem(
-            icon: Icons.quiz_outlined,
-            text: 'Test Portal',
-            onTap: () => Navigator.pop(context),
-          ),
-          _buildDrawerItem(
-            icon: Icons.person_pin_outlined,
-            text: 'Student ID Card',
-            onTap: () => _navigateToScreen(context, const StudentIdScreen()),
-          ),
-          _buildDrawerItem(
-            icon: Icons.emoji_events_outlined,
-            text: 'Results',
-            onTap: () => _navigateToScreen(context, const ResultsScreen()),
-          ),
-          _buildDrawerItem(
-            icon: Icons.notifications_outlined,
-            text: 'Notifications',
-            onTap: () => _navigateToScreen(context, const NotificationsScreen()),
-          ),
-          _buildDrawerItem(
-            icon: Icons.feedback_outlined,
-            text: 'Feedback',
-            onTap: () => _navigateToScreen(context, const FeedbackScreen()),
-          ),
-          const Divider(),
-          // ✅ FIXED LOGOUT
-          _buildDrawerItem(
-            icon: Icons.logout,
-            text: 'Logout',
-            onTap: () => _handleLogout(context, sessionManager),
-          ),
-        ],
+      child: Consumer<StudentProfileProvider>(
+        builder: (context, profileProvider, child) {
+          final profile = profileProvider.studentProfile;
+          final studentName = profile?.studentUser.fullName ?? 'Student';
+          final studentEmail = profile?.studentUser.email ?? 'email@example.com';
+          final photoUrl = profile?.studentUser.photoUrl ?? '';
+
+          return ListView(
+            padding: EdgeInsets.zero,
+            children: <Widget>[
+              UserAccountsDrawerHeader(
+                accountName: Text(
+                  studentName,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
+                accountEmail: Text(studentEmail),
+                currentAccountPicture: CircleAvatar(
+                  backgroundImage: photoUrl.isNotEmpty
+                      ? NetworkImage(photoUrl)
+                      : const AssetImage('assets/profile.png') as ImageProvider,
+                  backgroundColor: Colors.white,
+                  onBackgroundImageError: photoUrl.isNotEmpty
+                      ? (exception, stackTrace) {
+                    print('⚠️ Error loading drawer profile image: $exception');
+                  }
+                      : null,
+                ),
+                decoration: const BoxDecoration(
+                  color: Colors.blueAccent,
+                ),
+              ),
+              _buildDrawerItem(
+                icon: Icons.dashboard_outlined,
+                text: 'Dashboard',
+                onTap: () => Navigator.pop(context),
+              ),
+              _buildDrawerItem(
+                icon: Icons.school_outlined,
+                text: 'Courses',
+                onTap: () => _navigateToScreen(context, const CoursesScreen()),
+              ),
+              _buildDrawerItem(
+                icon: Icons.calendar_today_outlined,
+                text: 'Attendance',
+                onTap: () => _navigateToScreen(context, const AttendanceScreen()),
+              ),
+              _buildDrawerItem(
+                icon: Icons.schedule_outlined,
+                text: 'Timetable',
+                onTap: () => _navigateToScreen(context, const TimetableScreen()),
+              ),
+              _buildDrawerItem(
+                icon: Icons.question_answer_outlined,
+                text: 'Doubt Lectures',
+                onTap: () => _navigateToScreen(context, const DoubtLectureScreen()),
+              ),
+              _buildDrawerItem(
+                icon: Icons.assignment_outlined,
+                text: 'Assignments',
+                onTap: () => _navigateToScreen(context, const AssignmentsScreen()),
+              ),
+              _buildDrawerItem(
+                icon: Icons.help_outline,
+                text: 'Doubts',
+                onTap: () => _navigateToScreen(context, const DoubtsScreen()),
+              ),
+              _buildDrawerItem(
+                icon: Icons.quiz_outlined,
+                text: 'Test Portal',
+                onTap: () => Navigator.pop(context),
+              ),
+              _buildDrawerItem(
+                icon: Icons.person_pin_outlined,
+                text: 'Student ID Card',
+                onTap: () => _navigateToScreen(context, const StudentIdScreen()),
+              ),
+              _buildDrawerItem(
+                icon: Icons.emoji_events_outlined,
+                text: 'Results',
+                onTap: () => _navigateToScreen(context, const ResultsScreen()),
+              ),
+              _buildDrawerItem(
+                icon: Icons.notifications_outlined,
+                text: 'Notifications',
+                onTap: () => _navigateToScreen(context, const NotificationsScreen()),
+              ),
+              _buildDrawerItem(
+                icon: Icons.feedback_outlined,
+                text: 'Feedback',
+                onTap: () => _navigateToScreen(context, const FeedbackScreen()),
+              ),
+              const Divider(),
+              _buildDrawerItem(
+                icon: Icons.logout,
+                text: 'Logout',
+                onTap: () => _handleLogout(context, sessionManager, profileProvider),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 
-  Future<void> _handleLogout(BuildContext context, SessionManager sessionManager) async {
+  Future<void> _handleLogout(
+      BuildContext context,
+      SessionManager sessionManager,
+      StudentProfileProvider profileProvider,
+      ) async {
     print('🔍 [LOGOUT] Starting logout process...');
 
-    // ✅ SAVE THE NAVIGATOR BEFORE ANY OPERATIONS
     final navigator = Navigator.of(context);
     final scaffoldMessenger = ScaffoldMessenger.of(context);
 
-    // 1. Show confirmation dialog
     final confirmed = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -154,11 +176,9 @@ class AppDrawer extends StatelessWidget {
       return;
     }
 
-    // 2. Close drawer using saved navigator
     print('🔍 [LOGOUT] Closing drawer...');
     navigator.pop();
 
-    // 3. Show loading snackbar using saved messenger
     print('🔍 [LOGOUT] Showing loading snackbar...');
     scaffoldMessenger.showSnackBar(
       const SnackBar(
@@ -181,9 +201,12 @@ class AppDrawer extends StatelessWidget {
       ),
     );
 
-    // 4. Perform logout operations
     try {
       print('🚪 Starting Student logout...');
+
+      // Clear profile provider FIRST
+      profileProvider.clearProfile();
+      print('✅ Profile provider cleared');
 
       // Delete FCM token
       try {
@@ -217,8 +240,7 @@ class AppDrawer extends StatelessWidget {
 
       print('✅ Student logout completed');
 
-      // 5. Navigate using saved navigator (GUARANTEED TO WORK)
-      print('🔍 [LOGOUT] Navigating to HomeScreen using saved navigator...');
+      print('🔍 [LOGOUT] Navigating to HomeScreen...');
       navigator.pushAndRemoveUntil(
         MaterialPageRoute(
           builder: (newContext) {
@@ -234,7 +256,6 @@ class AppDrawer extends StatelessWidget {
 
       print('✅ [LOGOUT] Navigation completed successfully');
 
-      // 6. Show success message
       Future.delayed(const Duration(milliseconds: 500), () {
         print('🔍 [LOGOUT] Showing success message...');
         scaffoldMessenger.showSnackBar(
@@ -249,7 +270,6 @@ class AppDrawer extends StatelessWidget {
       print('❌ Logout error: $e');
       print('Stack trace: $stack');
 
-      // Force navigation even on error
       print('🔍 [LOGOUT] Error occurred, forcing navigation...');
       navigator.pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const HomeScreen()),

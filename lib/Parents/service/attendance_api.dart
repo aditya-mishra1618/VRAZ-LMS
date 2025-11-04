@@ -26,7 +26,6 @@ class AttendanceApi {
       );
 
       print('[AttendanceApi] Response status: ${response.statusCode}');
-      print('[AttendanceApi] Response body: ${response.body}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -60,14 +59,6 @@ class AttendanceApi {
 
         print('[AttendanceApi] ✅ Parsed ${records.length} attendance records');
 
-        // Debug: Print first few records
-        if (records.isNotEmpty) {
-          print('[AttendanceApi] Sample records:');
-          for (var i = 0; i < (records.length > 3 ? 3 : records.length); i++) {
-            print('[AttendanceApi]   - ${records[i].formattedDate}: ${records[i].status} (${records[i].subjectName})');
-          }
-        }
-
         return records;
       } else if (response.statusCode == 401) {
         print('[AttendanceApi] ❌ Unauthorized - token may be expired');
@@ -86,7 +77,7 @@ class AttendanceApi {
     }
   }
 
-  /// Calculate attendance summary
+  /// Calculate attendance summary - delegates to model
   static AttendanceSummary calculateSummary(List<AttendanceRecord> records) {
     return AttendanceSummary.fromRecords(records);
   }

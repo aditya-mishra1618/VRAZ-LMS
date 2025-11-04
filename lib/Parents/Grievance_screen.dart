@@ -4,7 +4,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vraz_application/Parents/service/greivance_api.dart';
 
-import 'grievance_chat_screen.dart';
 import 'models/grivance_model.dart';
 import 'parent_app_drawer.dart';
 
@@ -339,21 +338,49 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
     );
   }
 
+  // ✅ UPDATED: Removed onTap to disable navigation
   Widget _buildGrievanceCard(Grievance grievance) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 0,
       color: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: ListTile(
-        contentPadding: const EdgeInsets.all(16),
-        title: Text(
-          grievance.title,
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-        ),
-        subtitle: Column(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    grievance.title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: grievance.statusBackgroundColor,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    grievance.displayStatus,
+                    style: TextStyle(
+                      color: grievance.statusColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 8),
             Text(
               grievance.description,
@@ -374,34 +401,6 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
             ),
           ],
         ),
-        trailing: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: grievance.statusBackgroundColor,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            grievance.displayStatus,
-            style: TextStyle(
-              color: grievance.statusColor,
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
-            ),
-          ),
-        ),
-        onTap: () {
-          // ✅ UPDATED: Navigate to chat with grievance ID
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => GrievanceChatScreen(
-                grievanceTitle: grievance.title,
-                navigationSource: 'grievance_list',
-                grievanceId: grievance.id, // ✅ Pass the ID
-              ),
-            ),
-          );
-        },
       ),
     );
   }
@@ -418,7 +417,7 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
   }
 }
 
-// Raise Ticket Modal
+// ✅ UPDATED: Raise Ticket Modal - Removed Category Dropdown
 class RaiseTicketModal extends StatefulWidget {
   final String authToken;
 
@@ -431,7 +430,6 @@ class RaiseTicketModal extends StatefulWidget {
 class _RaiseTicketModalState extends State<RaiseTicketModal> {
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
-  String? _selectedCategory = 'Academic';
   File? _attachedImage;
   String? _uploadedImageUrl;
   final ImagePicker _picker = ImagePicker();
@@ -460,7 +458,6 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
           _isUploading = true;
         });
 
-        // ✅ AUTO-UPLOAD when captured from camera
         await _uploadImage();
       }
     } catch (e) {
@@ -483,14 +480,12 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
           _attachedImage = File(pickedFile.path);
         });
 
-        // ✅ ASK FOR CONFIRMATION when selected from gallery
         final confirmed = await _showConfirmationDialog();
 
         if (confirmed == true) {
           setState(() => _isUploading = true);
           await _uploadImage();
         } else {
-          // User cancelled, remove the image
           setState(() {
             _attachedImage = null;
           });
@@ -603,11 +598,12 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
     try {
       final attachments = _uploadedImageUrl != null ? [_uploadedImageUrl!] : null;
 
+      // ✅ UPDATED: Passing null for category (removed category field)
       final success = await GrievanceApi.createGrievance(
         authToken: widget.authToken,
         title: _titleController.text.trim(),
         description: _descriptionController.text.trim(),
-        category: _selectedCategory,
+        category: null, // ✅ No category needed
         attachments: attachments,
       );
 
@@ -691,8 +687,7 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
               const SizedBox(height: 20),
               _buildTitleField(),
               const SizedBox(height: 20),
-              _buildDropdown(),
-              const SizedBox(height: 20),
+              // ✅ REMOVED: Category dropdown
               _buildDescriptionField(),
               const SizedBox(height: 20),
               _buildAttachmentSection(),
@@ -721,41 +716,6 @@ class _RaiseTicketModalState extends State<RaiseTicketModal> {
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide.none,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDropdown() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Category', style: TextStyle(fontWeight: FontWeight.w500)),
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: DropdownButtonFormField<String>(
-            value: _selectedCategory,
-            items: ['Academic', 'Payment', 'Attendance', 'Transport', 'Other']
-                .map((String category) {
-              return DropdownMenuItem<String>(
-                value: category,
-                child: Text(category),
-              );
-            }).toList(),
-            onChanged: (newValue) {
-              setState(() {
-                _selectedCategory = newValue;
-              });
-            },
-            decoration: const InputDecoration(
-              border: InputBorder.none,
             ),
           ),
         ),

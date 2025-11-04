@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vraz_application/Parents/service/parent_child_api.dart';
 import 'package:vraz_application/Parents/service/parent_profile_api_service.dart';
+import 'package:vraz_application/Parents/support_ticket_screen.dart';
 
 import '../Parents/notifications_screen.dart';
 import 'Grievance_screen.dart';
@@ -584,10 +585,7 @@ class _ParentDashboardScreenState extends State<ParentDashboardScreen> with Widg
         'icon': Icons.support_agent_outlined,
         'label': 'Support Chat',
         'colors': [Colors.cyan.shade100, Colors.cyan.shade200],
-        'screen': const GrievanceChatScreen(
-          navigationSource: 'dashboard',
-          grievanceTitle: '',
-        ),
+        'screen': const SupportTicketScreen()
       },
       {
         'icon': Icons.group_add_outlined,

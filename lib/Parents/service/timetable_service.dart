@@ -22,7 +22,7 @@ class TimetableApi {
     print('[TimetableApi] 📅 Fetching timetable for child: $childId');
     print('[TimetableApi] GET $url');
     print('[TimetableApi] Date range: $startDateStr to $endDateStr');
-    print('[TimetableApi] Auth token: ${authToken.substring(0, 30)}...');
+    print('[TimetableApi] Auth token: $authToken');
 
     try {
       final response = await http.get(

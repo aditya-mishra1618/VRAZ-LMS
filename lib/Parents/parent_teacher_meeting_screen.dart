@@ -18,11 +18,12 @@ class _ParentTeacherMeetingScreenState
     extends State<ParentTeacherMeetingScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
-  List<Map<String, String>> _upcomingMeetings = [];
-  List<Map<String, String>> _pastMeetings = [];
+  List<Meeting> _upcomingMeetings = [];
+  List<Meeting> _pastMeetings = [];
+  List<Meeting> _declinedMeetings = [];
   bool _isLoading = true;
   String? _authToken;
-  int? _admissionId; // ✅ NEW: For API call
+  int? _admissionId;
 
   @override
   void initState() {
@@ -36,13 +37,10 @@ class _ParentTeacherMeetingScreenState
     try {
       final prefs = await SharedPreferences.getInstance();
       _authToken = prefs.getString('parent_auth_token');
-      _admissionId = prefs.getInt('selected_child_id'); // ✅ Get admission ID
-
-      print('[PTMScreen] Auth Token: ${_authToken != null ? "Found" : "Missing"}');
-      print('[PTMScreen] Admission ID: $_admissionId');
+      _admissionId = prefs.getInt('selected_child_id');
 
       if (_authToken == null || _authToken!.isEmpty) {
-        print('[PTMScreen] ❌ No auth token found');
+        _showError('Session expired. Please login again.');
         return;
       }
 
@@ -50,26 +48,22 @@ class _ParentTeacherMeetingScreenState
 
       _upcomingMeetings.clear();
       _pastMeetings.clear();
+      _declinedMeetings.clear();
 
       for (var meeting in meetings) {
-        final meetingMap = {
-          'title': meeting.reason,
-          'teacher': meeting.teacher.fullName,
-          'date': meeting.formattedDate,
-          'time': meeting.formattedTime,
-          'status': meeting.displayStatus,
-        };
-
-        if (meeting.isUpcoming || meeting.isPending) {
-          _upcomingMeetings.add(meetingMap);
+        if (meeting.isDeclined) {
+          _declinedMeetings.add(meeting);
+        } else if (meeting.isUpcoming || meeting.isPending) {
+          _upcomingMeetings.add(meeting);
         } else if (meeting.isPast || meeting.isCompleted) {
-          _pastMeetings.add(meetingMap);
+          _pastMeetings.add(meeting);
         }
       }
 
-      print('[PTMScreen] ✅ Loaded: ${_upcomingMeetings.length} upcoming, ${_pastMeetings.length} past');
+      print('[PTMScreen] ✅ Upcoming: ${_upcomingMeetings.length}, Past: ${_pastMeetings.length}, Declined: ${_declinedMeetings.length}');
     } catch (e) {
       print('[PTMScreen] ❌ Error: $e');
+      _showError('Failed to load meetings');
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -77,10 +71,80 @@ class _ParentTeacherMeetingScreenState
     }
   }
 
-  void _addMeeting(Map<String, String> newMeeting) {
-    setState(() {
-      _upcomingMeetings.insert(0, newMeeting);
-    });
+  void _showError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  void _showSuccess(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.green),
+      );
+    }
+  }
+
+  // ✅ ACCEPT/DECLINE LOGIC
+  Future<void> _handleAcceptDecline(Meeting meeting, String newStatus) async {
+    final isAccept = newStatus == 'ACCEPTED';
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(isAccept ? 'Accept Meeting?' : 'Decline Meeting?'),
+        content: Text(
+          isAccept
+              ? 'Do you want to accept this meeting with ${meeting.teacher.fullName}?'
+              : 'Are you sure you want to decline this meeting?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isAccept ? Colors.green : Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: Text(isAccept ? 'Accept' : 'Decline'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    // Show loading
+    setState(() => _isLoading = true);
+
+    try {
+      print('[PTMScreen] 🔄 Updating meeting ${meeting.id} to $newStatus');
+
+      final success = await MeetingApi.updateMeetingStatus(
+        authToken: _authToken!,
+        meetingId: meeting.id,
+        newStatus: newStatus,
+      );
+
+      if (success) {
+        _showSuccess(isAccept ? '✅ Meeting accepted!' : '❌ Meeting declined');
+        await _loadMeetings(); // Reload meetings
+      } else {
+        _showError('Failed to update meeting status');
+      }
+    } catch (e) {
+      print('[PTMScreen] ❌ Error: $e');
+      _showError('An error occurred');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   @override
@@ -93,9 +157,10 @@ class _ParentTeacherMeetingScreenState
           icon: const Icon(Icons.menu, color: Colors.black54),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
-        title: const Text('Parent-Teacher Meetings',
-            style:
-            TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Parent-Teacher Meetings',
+          style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 18),
+        ),
         backgroundColor: const Color(0xFFF0F4F8),
         elevation: 0,
         centerTitle: true,
@@ -104,58 +169,331 @@ class _ParentTeacherMeetingScreenState
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-        onRefresh: _loadMeetings, // ✅ Pull to refresh
+        onRefresh: _loadMeetings,
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Upcoming',
-                  style: TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.bold)),
+              _buildSectionHeader('Upcoming', _upcomingMeetings.length),
               const SizedBox(height: 12),
               if (_upcomingMeetings.isEmpty)
-                const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(20),
-                      child: Text('No upcoming meetings'),
-                    ))
+                _buildEmptyState('No upcoming meetings', Icons.event_available)
               else
-                ..._upcomingMeetings
-                    .map((meeting) => _buildMeetingCard(meeting)),
+                ..._upcomingMeetings.map((meeting) => _buildMeetingCard(meeting)),
+
               const SizedBox(height: 24),
-              const Text('Past',
-                  style: TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.bold)),
+
+              _buildSectionHeader('Past', _pastMeetings.length),
               const SizedBox(height: 12),
               if (_pastMeetings.isEmpty)
-                const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(20),
-                      child: Text('No past meetings'),
-                    ))
+                _buildEmptyState('No past meetings', Icons.history)
               else
-                ..._pastMeetings
-                    .map((meeting) => _buildMeetingCard(meeting)),
+                ..._pastMeetings.map((meeting) => _buildMeetingCard(meeting)),
+
+              const SizedBox(height: 24),
+
+              if (_declinedMeetings.isNotEmpty) ...[
+                _buildSectionHeader('Declined', _declinedMeetings.length),
+                const SizedBox(height: 12),
+                ..._declinedMeetings.map((meeting) => _buildMeetingCard(meeting)),
+                const SizedBox(height: 80),
+              ],
             ],
           ),
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
-          // ✅ Pass auth token and admission ID
           final result = await _showRequestModal(context);
           if (result == true) {
-            _loadMeetings(); // ✅ Reload after creating meeting
+            _loadMeetings();
           }
         },
-        label: const Text('Request a Meeting'),
+        label: const Text('Request Meeting'),
         icon: const Icon(Icons.add),
         backgroundColor: Colors.blueAccent,
         foregroundColor: Colors.white,
       ),
     );
+  }
+
+  Widget _buildSectionHeader(String title, int count) {
+    return Row(
+      children: [
+        Text(
+          title,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+        ),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.blue.shade100,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            '$count',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: Colors.blue.shade700,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmptyState(String message, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.all(32),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Center(
+        child: Column(
+          children: [
+            Icon(icon, size: 48, color: Colors.grey[400]),
+            const SizedBox(height: 12),
+            Text(
+              message,
+              style: TextStyle(color: Colors.grey[600], fontSize: 14),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMeetingCard(Meeting meeting) {
+    final statusInfo = _getStatusInfo(meeting);
+    final bool showButtons = meeting.isPending && meeting.isAdminInitiated;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: showButtons ? 2 : 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: showButtons
+            ? BorderSide(color: Colors.orange.shade300, width: 2)
+            : BorderSide.none,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: statusInfo['color'].withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    statusInfo['icon'],
+                    color: statusInfo['color'],
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        meeting.reason,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                          color: Colors.black87,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: statusInfo['bgColor'],
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          meeting.displayStatus,
+                          style: TextStyle(
+                            color: statusInfo['color'],
+                            fontWeight: FontWeight.bold,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _buildInitiatorBadge(meeting),
+              ],
+            ),
+
+            const SizedBox(height: 12),
+            const Divider(height: 1),
+            const SizedBox(height: 12),
+
+            Row(
+              children: [
+                Icon(Icons.person_outline, size: 18, color: Colors.grey[600]),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    meeting.teacher.fullName,
+                    style: TextStyle(color: Colors.grey[700], fontSize: 14),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 8),
+
+            Row(
+              children: [
+                Icon(Icons.access_time, size: 18, color: Colors.grey[600]),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${meeting.formattedDate} · ${meeting.formattedTime}',
+                    style: TextStyle(color: Colors.grey[700], fontSize: 13),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+
+            // ✅ ACCEPT/DECLINE BUTTONS
+            if (showButtons) ...[
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => _handleAcceptDecline(meeting, 'DECLINED'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red,
+                        side: BorderSide(color: Colors.red.shade300),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: const Text('Decline', style: TextStyle(fontSize: 13)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => _handleAcceptDecline(meeting, 'ACCEPTED'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: const Text('Accept', style: TextStyle(fontSize: 13)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInitiatorBadge(Meeting meeting) {
+    if (meeting.isAdminInitiated) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.purple.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.purple.shade200),
+        ),
+        child: Text(
+          'Admin',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            color: Colors.purple.shade700,
+          ),
+        ),
+      );
+    } else {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.blue.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.blue.shade200),
+        ),
+        child: Text(
+          'You',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            color: Colors.blue.shade700,
+          ),
+        ),
+      );
+    }
+  }
+
+  Map<String, dynamic> _getStatusInfo(Meeting meeting) {
+    if (meeting.isPending) {
+      return {
+        'icon': Icons.schedule,
+        'color': Colors.orange.shade600,
+        'bgColor': Colors.orange.shade50,
+      };
+    } else if (meeting.isScheduled || meeting.isAccepted) {
+      return {
+        'icon': Icons.check_circle,
+        'color': Colors.green.shade600,
+        'bgColor': Colors.green.shade50,
+      };
+    } else if (meeting.isCompleted) {
+      return {
+        'icon': Icons.task_alt,
+        'color': Colors.blue.shade600,
+        'bgColor': Colors.blue.shade50,
+      };
+    } else if (meeting.isDeclined) {
+      return {
+        'icon': Icons.cancel,
+        'color': Colors.red.shade600,
+        'bgColor': Colors.red.shade50,
+      };
+    } else if (meeting.isCancelled) {
+      return {
+        'icon': Icons.event_busy,
+        'color': Colors.grey.shade600,
+        'bgColor': Colors.grey.shade50,
+      };
+    } else {
+      return {
+        'icon': Icons.help_outline,
+        'color': Colors.grey.shade600,
+        'bgColor': Colors.grey.shade50,
+      };
+    }
   }
 
   Future<bool?> _showRequestModal(BuildContext context) async {
@@ -165,230 +503,21 @@ class _ParentTeacherMeetingScreenState
       backgroundColor: Colors.transparent,
       builder: (BuildContext context) {
         return RequestMeetingModal(
-          onAddMeeting: _addMeeting,
-          authToken: _authToken!, // ✅ Pass token
-          admissionId: _admissionId!, // ✅ Pass admission ID
+          authToken: _authToken!,
+          admissionId: _admissionId!,
         );
       },
     );
   }
+}
 
-  Widget _buildMeetingCard(Map<String, String> meeting) {
-    final String status = meeting['status']!;
-
-    // ✅ Enhanced status styling
-    final bool isScheduled = status == 'SCHEDULED' || status == 'ACCEPTED';
-    final bool isPending = status == 'PENDING';
-    final bool isCompleted = status == 'COMPLETED';
-    final bool isDeclined = status == 'DECLINED';
-
-    // ✅ Dynamic colors based on status
-    Color iconColor;
-    Color statusColor;
-    Color statusBgColor;
-    IconData iconData;
-
-    if (isPending) {
-      iconColor = Colors.orange;
-      statusColor = Colors.orange.shade700;
-      statusBgColor = Colors.orange.shade50;
-      iconData = Icons.pending_outlined;
-    } else if (isScheduled) {
-      iconColor = Colors.blueAccent;
-      statusColor = Colors.blue.shade700;
-      statusBgColor = Colors.blue.shade50;
-      iconData = Icons.calendar_month_outlined;
-    } else if (isCompleted) {
-      iconColor = Colors.green;
-      statusColor = Colors.green.shade700;
-      statusBgColor = Colors.green.shade50;
-      iconData = Icons.check_circle_outline;
-    } else if (isDeclined) {
-      iconColor = Colors.red;
-      statusColor = Colors.red.shade700;
-      statusBgColor = Colors.red.shade50;
-      iconData = Icons.cancel_outlined;
-    } else {
-      iconColor = Colors.grey;
-      statusColor = Colors.grey.shade700;
-      statusBgColor = Colors.grey.shade50;
-      iconData = Icons.event_busy;
-    }
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: isPending ? 2 : 0, // ✅ Elevated for pending
-      color: Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: isPending
-            ? BorderSide(color: Colors.orange.shade300, width: 2) // ✅ Orange border for pending
-            : BorderSide.none,
-      ),
-      child: Container(
-        decoration: isPending
-            ? BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          gradient: LinearGradient(
-            colors: [
-              Colors.orange.shade50.withOpacity(0.3),
-              Colors.white,
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        )
-            : null,
-        child: ListTile(
-          contentPadding: const EdgeInsets.all(16),
-          leading: Stack(
-            children: [
-              CircleAvatar(
-                radius: 24,
-                backgroundColor: iconColor.withOpacity(0.15),
-                child: Icon(
-                  iconData,
-                  color: iconColor,
-                  size: 26,
-                ),
-              ),
-              // ✅ Pulsing indicator for pending
-              if (isPending)
-                Positioned(
-                  right: 0,
-                  top: 0,
-                  child: Container(
-                    width: 12,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      color: Colors.orange,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.orange.withOpacity(0.5),
-                          blurRadius: 4,
-                          spreadRadius: 1,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          title: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  meeting['title']!,
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                    color: isPending ? Colors.orange.shade900 : Colors.black87,
-                  ),
-                ),
-              ),
-              // ✅ "Waiting" badge for pending
-              if (isPending)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.shade100,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.orange.shade300, width: 1),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.hourglass_empty, size: 12, color: Colors.orange.shade700),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Waiting',
-                        style: TextStyle(
-                          color: Colors.orange.shade700,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-            ],
-          ),
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 4),
-              Text(
-                meeting['teacher']!,
-                style: TextStyle(
-                  fontWeight: isPending ? FontWeight.w600 : FontWeight.normal,
-                  color: isPending ? Colors.black87 : Colors.black54,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Row(
-                children: [
-                  Icon(
-                    Icons.access_time,
-                    size: 14,
-                    color: isPending ? Colors.orange.shade700 : Colors.grey[600],
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '${meeting['date']!} · ${meeting['time']!}',
-                    style: TextStyle(
-                      color: isPending ? Colors.orange.shade700 : Colors.grey[600],
-                      fontSize: 12,
-                      fontWeight: isPending ? FontWeight.w600 : FontWeight.normal,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          trailing: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: statusBgColor,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: isPending ? Colors.orange.shade300 : statusColor.withOpacity(0.3),
-                width: isPending ? 1.5 : 1,
-              ),
-              boxShadow: isPending
-                  ? [
-                BoxShadow(
-                  color: Colors.orange.withOpacity(0.2),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ]
-                  : null,
-            ),
-            child: Text(
-              status,
-              style: TextStyle(
-                color: statusColor,
-                fontWeight: FontWeight.bold,
-                fontSize: 11,
-                letterSpacing: 0.5,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }}
-
-// ✅ UPDATED REQUEST MODAL with API Integration
+// Keep your existing RequestMeetingModal unchanged
 class RequestMeetingModal extends StatefulWidget {
-  final Function(Map<String, String>) onAddMeeting;
   final String authToken;
   final int admissionId;
 
   const RequestMeetingModal({
     super.key,
-    required this.onAddMeeting,
     required this.authToken,
     required this.admissionId,
   });
@@ -396,6 +525,7 @@ class RequestMeetingModal extends StatefulWidget {
   @override
   State<RequestMeetingModal> createState() => _RequestMeetingModalState();
 }
+
 
 class _RequestMeetingModalState extends State<RequestMeetingModal> {
   String? _selectedTeacherName;

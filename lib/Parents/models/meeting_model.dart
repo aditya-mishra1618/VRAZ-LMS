@@ -1,19 +1,17 @@
-import 'dart:ui';
-
 import 'package:intl/intl.dart';
 
-class ParentTeacherMeeting {
+class Meeting {
   final int id;
   final int parentId;
   final String teacherId;
-  final dynamic requestedTimeSlots; // Can be string or array
+  final List<DateTime> requestedTimeSlots;
   final String reason;
   final String status;
   final DateTime? scheduledTime;
   final String initiatedBy;
-  final Teacher teacher;
+  final TeacherInfo teacher;
 
-  ParentTeacherMeeting({
+  Meeting({
     required this.id,
     required this.parentId,
     required this.teacherId,
@@ -25,196 +23,133 @@ class ParentTeacherMeeting {
     required this.teacher,
   });
 
-  factory ParentTeacherMeeting.fromJson(Map<String, dynamic> json) {
-    DateTime? scheduledTimeValue;
-    if (json['scheduledTime'] != null) {
-      scheduledTimeValue = DateTime.parse(json['scheduledTime'].toString());
+  factory Meeting.fromJson(Map<String, dynamic> json) {
+    List<DateTime> timeSlots = [];
+    try {
+      if (json['requestedTimeSlots'] != null) {
+        final slots = json['requestedTimeSlots'];
+        if (slots is List) {
+          timeSlots = slots.map((slot) {
+            try {
+              return DateTime.parse(slot.toString());
+            } catch (e) {
+              return null;
+            }
+          }).whereType<DateTime>().toList();
+        } else if (slots is String) {
+          timeSlots = [DateTime.parse(slots)];
+        }
+      }
+    } catch (e) {
+      print('[Meeting] Error parsing slots: $e');
     }
 
-    return ParentTeacherMeeting(
+    DateTime? scheduled;
+    try {
+      if (json['scheduledTime'] != null && json['scheduledTime'] != 'null') {
+        scheduled = DateTime.tryParse(json['scheduledTime'].toString());
+      }
+    } catch (e) {
+      print('[Meeting] Error parsing scheduled time: $e');
+    }
+
+    return Meeting(
       id: json['id'] ?? 0,
       parentId: json['parentId'] ?? 0,
       teacherId: json['teacherId']?.toString() ?? '',
-      requestedTimeSlots: json['requestedTimeSlots'],
-      reason: json['reason']?.toString() ?? '',
-      status: (json['status'] ?? 'PENDING').toString().toUpperCase(),
-      scheduledTime: scheduledTimeValue,
-      initiatedBy: (json['initiatedBy'] ?? 'PARENT').toString().toUpperCase(),
-      teacher: Teacher.fromJson(json['teacher'] ?? {}),
+      requestedTimeSlots: timeSlots,
+      reason: json['reason']?.toString() ?? 'No reason provided',
+      status: (json['status'] ?? 'UNKNOWN').toString().toUpperCase(),
+      scheduledTime: scheduled,
+      initiatedBy: (json['initiatedBy'] ?? 'UNKNOWN').toString().toUpperCase(),
+      teacher: TeacherInfo.fromJson(json['teacher'] ?? {}),
     );
   }
 
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'parentId': parentId,
-      'teacherId': teacherId,
-      'requestedTimeSlots': requestedTimeSlots,
-      'reason': reason,
-      'status': status,
-      'scheduledTime': scheduledTime?.toIso8601String(),
-      'initiatedBy': initiatedBy,
-      'teacher': teacher.toJson(),
-    };
-  }
-
-  // Status checks
+  // ✅ FIXED: Include AWAITING_PARENT as pending
+  bool get isPending => status == 'PENDING' || status == 'AWAITING_PARENT';
   bool get isAccepted => status == 'ACCEPTED';
-  bool get isPending => status == 'PENDING';
+  bool get isScheduled => status == 'SCHEDULED';
+  bool get isCompleted => status == 'COMPLETED';
   bool get isDeclined => status == 'DECLINED';
   bool get isCancelled => status == 'CANCELLED';
-  bool get isCompleted => status == 'COMPLETED';
 
-  // Check if meeting is upcoming
+  bool get isAdminInitiated => initiatedBy == 'ADMIN' || initiatedBy == 'TEACHER';
+  bool get isParentInitiated => initiatedBy == 'PARENT';
+
   bool get isUpcoming {
-    if (!isAccepted || scheduledTime == null) return false;
-    return scheduledTime!.isAfter(DateTime.now());
+    if (scheduledTime != null) {
+      return scheduledTime!.isAfter(DateTime.now()) && !isCompleted && !isDeclined;
+    }
+    if (requestedTimeSlots.isNotEmpty) {
+      return requestedTimeSlots.first.isAfter(DateTime.now()) && !isCompleted && !isDeclined;
+    }
+    return isPending; // ✅ Pending meetings are upcoming
   }
 
-  // Check if meeting is past
   bool get isPast {
-    if (scheduledTime == null) return false;
-    return scheduledTime!.isBefore(DateTime.now()) && (isAccepted || isCompleted);
+    if (scheduledTime != null) {
+      return scheduledTime!.isBefore(DateTime.now()) || isCompleted;
+    }
+    if (requestedTimeSlots.isNotEmpty) {
+      return requestedTimeSlots.first.isBefore(DateTime.now()) || isCompleted;
+    }
+    return false;
   }
 
-  // Formatted outputs
-  String get formattedDate {
-    if (scheduledTime == null) return 'Not scheduled';
-    return DateFormat('MMM dd, yyyy').format(scheduledTime!);
-  }
-
-  String get formattedTime {
-    if (scheduledTime == null) return 'Not scheduled';
-    return DateFormat('hh:mm a').format(scheduledTime!);
-  }
-
-  String get formattedDateTime {
-    if (scheduledTime == null) return 'Not scheduled';
-    return DateFormat('MMM dd, yyyy · hh:mm a').format(scheduledTime!);
-  }
-
+  // ✅ FIXED: Display status for AWAITING_PARENT
   String get displayStatus {
     switch (status) {
-      case 'ACCEPTED':
-        return 'Accepted';
       case 'PENDING':
         return 'Pending';
+      case 'AWAITING_PARENT':
+        return 'Awaiting Response';
+      case 'ACCEPTED':
+        return 'Accepted';
+      case 'SCHEDULED':
+        return 'Scheduled';
+      case 'COMPLETED':
+        return 'Completed';
       case 'DECLINED':
         return 'Declined';
       case 'CANCELLED':
         return 'Cancelled';
-      case 'COMPLETED':
-        return 'Completed';
       default:
         return status;
     }
   }
 
-  // Get requested time slots as list
-  List<DateTime> get requestedTimeSlotsAsList {
-    if (requestedTimeSlots is List) {
-      return (requestedTimeSlots as List)
-          .map((slot) => DateTime.parse(slot.toString()))
-          .toList();
-    } else if (requestedTimeSlots is String) {
-      return [DateTime.parse(requestedTimeSlots.toString())];
-    }
-    return [];
+  String get formattedDate {
+    final dateToUse = scheduledTime ??
+        (requestedTimeSlots.isNotEmpty ? requestedTimeSlots.first : DateTime.now());
+    return DateFormat('MMM dd, yyyy').format(dateToUse);
   }
 
-  // Status colors
-  Color get statusColor {
-    if (isAccepted) return const Color(0xFF4CAF50); // Green
-    if (isPending) return const Color(0xFFFF9800); // Orange
-    if (isDeclined) return const Color(0xFFF44336); // Red
-    if (isCancelled) return const Color(0xFF9E9E9E); // Grey
-    if (isCompleted) return const Color(0xFF2196F3); // Blue
-    return const Color(0xFF757575);
-  }
-
-  Color get statusBackgroundColor {
-    if (isAccepted) return const Color(0xFFE8F5E9);
-    if (isPending) return const Color(0xFFFFF3E0);
-    if (isDeclined) return const Color(0xFFFFEBEE);
-    if (isCancelled) return const Color(0xFFF5F5F5);
-    if (isCompleted) return const Color(0xFFE3F2FD);
-    return const Color(0xFFEEEEEE);
+  String get formattedTime {
+    final dateToUse = scheduledTime ??
+        (requestedTimeSlots.isNotEmpty ? requestedTimeSlots.first : DateTime.now());
+    return DateFormat('hh:mm a').format(dateToUse);
   }
 
   @override
   String toString() {
-    return 'Meeting(id: $id, teacher: ${teacher.fullName}, status: $status, date: $formattedDate)';
+    return 'Meeting(id: $id, reason: $reason, status: $status, initiatedBy: $initiatedBy)';
   }
 }
 
-class Teacher {
+class TeacherInfo {
   final String fullName;
-  final String? photoUrl;
+  final String photoUrl;
 
-  Teacher({
+  TeacherInfo({
     required this.fullName,
-    this.photoUrl,
+    required this.photoUrl,
   });
 
-  factory Teacher.fromJson(Map<String, dynamic> json) {
-    return Teacher(
+  factory TeacherInfo.fromJson(Map<String, dynamic> json) {
+    return TeacherInfo(
       fullName: json['fullName']?.toString() ?? 'Unknown Teacher',
-      photoUrl: json['photoUrl']?.toString(),
+      photoUrl: json['photoUrl']?.toString() ?? '',
     );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'fullName': fullName,
-      'photoUrl': photoUrl,
-    };
-  }
-}
-
-class MeetingSummary {
-  final List<ParentTeacherMeeting> meetings;
-  final int acceptedCount;
-  final int pendingCount;
-  final int declinedCount;
-  final int upcomingCount;
-  final int pastCount;
-
-  MeetingSummary({
-    required this.meetings,
-    required this.acceptedCount,
-    required this.pendingCount,
-    required this.declinedCount,
-    required this.upcomingCount,
-    required this.pastCount,
-  });
-
-  factory MeetingSummary.fromMeetings(List<ParentTeacherMeeting> meetings) {
-    return MeetingSummary(
-      meetings: meetings,
-      acceptedCount: meetings.where((m) => m.isAccepted).length,
-      pendingCount: meetings.where((m) => m.isPending).length,
-      declinedCount: meetings.where((m) => m.isDeclined).length,
-      upcomingCount: meetings.where((m) => m.isUpcoming).length,
-      pastCount: meetings.where((m) => m.isPast).length,
-    );
-  }
-
-  List<ParentTeacherMeeting> getUpcomingMeetings() {
-    return meetings.where((m) => m.isUpcoming).toList()
-      ..sort((a, b) => a.scheduledTime!.compareTo(b.scheduledTime!));
-  }
-
-  List<ParentTeacherMeeting> getPastMeetings() {
-    return meetings.where((m) => m.isPast).toList()
-      ..sort((a, b) => b.scheduledTime!.compareTo(a.scheduledTime!));
-  }
-
-  List<ParentTeacherMeeting> getPendingMeetings() {
-    return meetings.where((m) => m.isPending).toList();
-  }
-
-  @override
-  String toString() {
-    return 'MeetingSummary(total: ${meetings.length}, accepted: $acceptedCount, pending: $pendingCount, upcoming: $upcomingCount)';
   }
 }

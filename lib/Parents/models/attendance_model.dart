@@ -96,18 +96,24 @@ class AttendanceSummary {
     required this.leaveDays,
   });
 
+  // ✅ FIXED: Count late as present
   factory AttendanceSummary.fromRecords(List<AttendanceRecord> records) {
     final presentCount = records.where((r) => r.isPresent).length;
     final absentCount = records.where((r) => r.isAbsent).length;
     final lateCount = records.where((r) => r.isLate).length;
     final leaveCount = records.where((r) => r.isLeave).length;
 
+    // ✅ FIXED: Add late to present count for percentage calculation
+    final totalPresentDays = presentCount + lateCount;
+
+    print('[AttendanceSummary] 📊 Summary: Present: $presentCount, Late: $lateCount, Total Present (including late): $totalPresentDays, Absent: $absentCount, Total: ${records.length}');
+
     return AttendanceSummary(
       records: records,
       totalDays: records.length,
-      presentDays: presentCount,
+      presentDays: totalPresentDays, // ✅ Now includes late
       absentDays: absentCount,
-      lateDays: lateCount,
+      lateDays: lateCount, // Still show separately for UI
       leaveDays: leaveCount,
     );
   }
@@ -144,7 +150,7 @@ class AttendanceSummary {
     }).toList();
   }
 
-  // Get weekly attendance data (last 4 weeks)
+  // ✅ FIXED: Get weekly attendance data (last 4 weeks) - count late as present
   List<double> getWeeklyPercentages() {
     final now = DateTime.now();
     final List<double> percentages = [];
@@ -161,7 +167,8 @@ class AttendanceSummary {
       if (weekRecords.isEmpty) {
         percentages.add(0.0);
       } else {
-        final presentCount = weekRecords.where((r) => r.isPresent).length;
+        // ✅ FIXED: Count late as present
+        final presentCount = weekRecords.where((r) => r.isPresent || r.isLate).length;
         percentages.add(presentCount / weekRecords.length);
       }
     }
@@ -169,7 +176,7 @@ class AttendanceSummary {
     return percentages;
   }
 
-  // Get monthly attendance data (last 6 months)
+  // ✅ FIXED: Get monthly attendance data (last 6 months) - count late as present
   List<double> getMonthlyPercentages() {
     final now = DateTime.now();
     final List<double> percentages = [];
@@ -181,7 +188,8 @@ class AttendanceSummary {
       if (monthRecords.isEmpty) {
         percentages.add(0.0);
       } else {
-        final presentCount = monthRecords.where((r) => r.isPresent).length;
+        // ✅ FIXED: Count late as present
+        final presentCount = monthRecords.where((r) => r.isPresent || r.isLate).length;
         percentages.add(presentCount / monthRecords.length);
       }
     }
