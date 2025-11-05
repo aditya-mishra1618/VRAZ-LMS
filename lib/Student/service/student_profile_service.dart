@@ -9,7 +9,7 @@ class StudentProfileService {
   /// Fetch student profile data
   Future<StudentProfileModel> getStudentProfile(String authToken) async {
     // Update this endpoint based on your actual API
-    final url = Uri.parse('${ApiConfig.baseUrl}/api/students/my/admission');
+    final url = Uri.parse('${ApiConfig.baseUrl}/api/students/my/profile');
     print('📘 [StudentProfileService] Fetching profile from $url');
 
     try {

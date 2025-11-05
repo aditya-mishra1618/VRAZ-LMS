@@ -5,9 +5,7 @@ import 'package:http/http.dart' as http;
 import '../models/timetable_model.dart';
 
 class TeacherTimetableService {
-  // --- THIS IS THE FIX ---
-  // The baseUrl must use the secure 'https://'
-  final String baseUrl = 'https://vraz-backend-api.onrender.com/api/teachers';
+  final String baseUrl = 'https://vraz-backend-api.onrender.com/api/teachers'; // ✅ Use HTTPS
   final String token;
 
   TeacherTimetableService({required this.token});
@@ -20,47 +18,54 @@ class TeacherTimetableService {
     final url =
         Uri.parse('$baseUrl/my/schedule?startDate=$startDate&endDate=$endDate');
 
-    // Clean token: remove quotes and trim spaces
-    final cleanToken = token.replaceAll('"', '').trim();
+    // ✅ Super clean token - remove ALL unwanted characters
+    final cleanToken = token
+        .replaceAll('"', '')
+        .replaceAll("'", '')
+        .replaceAll('\n', '')
+        .replaceAll('\r', '')
+        .replaceAll(' ', '')
+        .trim();
 
-    // Debug: show URL and cleaned token
-    print('[DEBUG] Fetching timetable from URL: $url');
-    print(
-        '[DEBUG] Cleaned token: [$cleanToken] (length: ${cleanToken.length})');
+    print('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    print('🔍 [TeacherTimetableService] API Request');
+    print('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    print('📍 URL: $url');
+    print('🔐 Token: $cleanToken');
+    print('📏 Token Length: ${cleanToken.length}');
+    print('📅 Date Range: $startDate to $endDate');
+    print('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     final headers = {
       'Authorization': 'Bearer $cleanToken',
       'Content-Type': 'application/json',
+      'Accept': 'application/json',
     };
-
-    // Debug: show headers
-    print('---DEBUG HEADERS---');
-    headers.forEach((k, v) => print('$k: $v'));
-    print('------------------');
 
     try {
       final response = await http.get(url, headers: headers);
 
-      // Debug: show response status and body
-      print('[DEBUG] Response status: ${response.statusCode}');
-      print('[DEBUG] Response body: ${response.body}');
+      print('📩 Response Status: ${response.statusCode}');
+      print('📨 Response Body: ${response.body}');
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
-        print(
-            '[DEBUG] Timetable fetched successfully: ${data.length} entries.');
+        print('✅ Timetable fetched successfully: ${data.length} entries.');
         return data.map((e) => TeacherTimetableEntry.fromJson(e)).toList();
       } else if (response.statusCode == 401) {
-        print('[ERROR] Unauthorized. Token may be expired or invalid.');
-        throw Exception('Unauthorized. Token may be expired or invalid.');
+        print('❌ 401 Unauthorized');
+        print('💡 Token might be expired or invalid');
+        print('🔑 Token used: Bearer $cleanToken');
+        throw Exception('Authentication failed. Please login again.');
+      } else if (response.statusCode == 404) {
+        print('⚠️ 404 Not Found - No timetable data');
+        return [];
       } else {
-        print(
-            '[ERROR] Failed to fetch timetable. Status code: ${response.statusCode}');
-        throw Exception(
-            'Failed to fetch timetable. Status code: ${response.statusCode}');
+        print('❌ Error ${response.statusCode}: ${response.body}');
+        throw Exception('Failed to fetch timetable (${response.statusCode})');
       }
     } catch (e) {
-      print('[ERROR] Exception during API call: $e');
+      print('❌ Exception: $e');
       rethrow;
     }
   }

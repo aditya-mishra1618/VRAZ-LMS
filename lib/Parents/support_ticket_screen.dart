@@ -3,10 +3,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:vraz_application/Parents/support_chat.dart';
 
 // Import your drawer and the chat screen
 import 'parent_app_drawer.dart'; // Make sure this path is correct
-import 'support_chat_screen.dart';
 
 // --- Data Model for a Support Ticket ---
 class SupportTicket {
@@ -98,7 +98,7 @@ class _SupportTicketScreenState extends State<SupportTicketScreen> {
         ),
         title: const Text('Support Tickets',
             style:
-                TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+            TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
         backgroundColor: Colors.white,
         elevation: 1,
         centerTitle: true,
@@ -115,10 +115,10 @@ class _SupportTicketScreenState extends State<SupportTicketScreen> {
             if (_pastTickets.isEmpty)
               const Center(
                   child: Padding(
-                padding: EdgeInsets.symmetric(vertical: 32.0),
-                child: Text('No tickets raised yet.',
-                    style: TextStyle(color: Colors.grey)),
-              ))
+                    padding: EdgeInsets.symmetric(vertical: 32.0),
+                    child: Text('No tickets raised yet.',
+                        style: TextStyle(color: Colors.grey)),
+                  ))
             else
               ..._pastTickets.map((ticket) => _buildTicketCard(ticket)),
           ],
@@ -298,7 +298,7 @@ class _RaiseSupportTicketModalState extends State<RaiseSupportTicketModal> {
   Widget build(BuildContext context) {
     return Padding(
       padding:
-          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: Container(
         padding: const EdgeInsets.all(20.0),
         decoration: const BoxDecoration(
@@ -363,7 +363,7 @@ class _RaiseSupportTicketModalState extends State<RaiseSupportTicketModal> {
               borderSide: BorderSide.none,
             ),
             contentPadding:
-                const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+            const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
           ),
         ),
       ],
@@ -423,7 +423,7 @@ class _RaiseSupportTicketModalState extends State<RaiseSupportTicketModal> {
               borderSide: BorderSide.none,
             ),
             contentPadding:
-                const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+            const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
           ),
         ),
       ],
@@ -506,12 +506,12 @@ class _RaiseSupportTicketModalState extends State<RaiseSupportTicketModal> {
       ),
       child: isLoading
           ? const SizedBox(
-              height: 20,
-              width: 20,
-              child: CircularProgressIndicator(
-                  strokeWidth: 2, color: Colors.white))
+          height: 20,
+          width: 20,
+          child: CircularProgressIndicator(
+              strokeWidth: 2, color: Colors.white))
           : const Text('Submit Grievance', // Renamed
-              style: TextStyle(color: Colors.white, fontSize: 16)),
+          style: TextStyle(color: Colors.white, fontSize: 16)),
     );
   }
 }

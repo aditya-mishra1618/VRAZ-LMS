@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import 'package:vraz_application/Student/service/attendance_api.dart';
 
-import 'app_drawer.dart'; // IMPORTANT: Imports your app drawer.
+import '../student_session_manager.dart';
+import 'app_drawer.dart';
+import 'models/attendance_model.dart';
 
 class AttendanceScreen extends StatefulWidget {
   const AttendanceScreen({super.key});
@@ -10,110 +15,188 @@ class AttendanceScreen extends StatefulWidget {
 }
 
 class _AttendanceScreenState extends State<AttendanceScreen> {
-  // --- State Management ---
-  int _selectedDateIndex = 2; // Wednesday is selected by default
+  int _selectedDateIndex = 0;
+  bool _isLoading = true;
 
-  // --- NEW: Dynamic Data Structure ---
-  // This map holds all attendance and lecture data, keyed by the date string ('11', '12', etc.).
-  final Map<String, Map<String, dynamic>> _dailyData = {
-    '11': {
-      'punchInTime': '09:05 AM',
-      'punchInStatus': 'On-time',
-      'punchOutTime': '05:00 PM',
-      'punchOutStatus': 'Completed',
-      'lectures': [
-        {
-          'icon': Icons.public,
-          'subject': 'Geography',
-          'time': '09:30 AM - 11:00 AM',
-          'status': 'Attended',
-        },
-        {
-          'icon': Icons.history_edu,
-          'subject': 'History',
-          'time': '11:15 AM - 12:45 PM',
-          'status': 'Attended',
-        },
-      ],
-    },
-    '12': {
-      'punchInTime': '09:18 AM',
-      'punchInStatus': 'Late',
-      'punchOutTime': '03:30 PM',
-      'punchOutStatus': 'Left early',
-      'lectures': [
-        {
-          'icon': Icons.functions,
-          'subject': 'Trigonometry',
-          'time': '09:30 AM - 11:00 AM',
-          'status': 'Missed',
-        },
-        {
-          'icon': Icons.biotech_outlined,
-          'subject': 'Biology Lab',
-          'time': '11:15 AM - 12:45 PM',
-          'status': 'Attended',
-        },
-        {
-          'icon': Icons.computer,
-          'subject': 'Computer Science',
-          'time': '02:00 PM - 03:30 PM',
-          'status': 'Attended',
-        },
-      ],
-    },
-    '13': {
-      'punchInTime': '09:02 AM',
-      'punchInStatus': 'On-time',
-      'punchOutTime': '-',
-      'punchOutStatus': 'Not punched out',
-      'lectures': [
-        {
-          'icon': Icons.thermostat,
-          'subject': 'Physics',
-          'time': '09:30 AM - 11:00 AM',
-          'status': 'Attended',
-        },
-        {
-          'icon': Icons.science_outlined,
-          'subject': 'Chemistry',
-          'time': '11:15 AM - 12:45 PM',
-          'status': 'Missed',
-        },
-        {
-          'icon': Icons.calculate_outlined,
-          'subject': 'Maths',
-          'time': '02:00 PM - 03:30 PM',
-          'status': 'Upcoming',
-        },
-        {
-          'icon': Icons.biotech_outlined,
-          'subject': 'Biology',
-          'time': '03:45 PM - 05:15 PM',
-          'status': 'Upcoming',
-        },
-      ],
-    },
-    // Other dates are left empty to simulate no data.
-  };
+  // ✅ Week navigation variables
+  DateTime _weekStart = DateTime.now();
+  DateTime _weekEnd = DateTime.now();
+  List<DateTime> _weekDates = [];
 
-  final List<Map<String, String>> _weekDates = [
-    {'day': 'Mon', 'date': '11'},
-    {'day': 'Tue', 'date': '12'},
-    {'day': 'Wed', 'date': '13'},
-    {'day': 'Thu', 'date': '14'},
-    {'day': 'Fri', 'date': '15'},
-    {'day': 'Sat', 'date': '16'},
-    {'day': 'Sun', 'date': '17'},
-  ];
+  // Daily data from API (keyed by full date string like '2025-01-13')
+  Map<String, Map<String, dynamic>> _dailyData = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeWeek();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadAttendance();
+    });
+  }
+
+  // ✅ Initialize current week (Mon-Sun)
+  void _initializeWeek() {
+    final now = DateTime.now();
+    final weekday = now.weekday; // 1 = Monday, 7 = Sunday
+
+    // Find Monday of current week
+    _weekStart = now.subtract(Duration(days: weekday - 1));
+    _weekEnd = _weekStart.add(const Duration(days: 6));
+
+    _generateWeekDates();
+
+    // Set selected index to today
+    _selectedDateIndex = weekday - 1;
+
+    print('[AttendanceScreen] Current week: ${_getDateRangeString()}');
+    print('[AttendanceScreen] Week start: $_weekStart');
+    print('[AttendanceScreen] Week end: $_weekEnd');
+  }
+
+  // ✅ Generate list of dates for current week
+  void _generateWeekDates() {
+    _weekDates.clear();
+    for (int i = 0; i < 7; i++) {
+      _weekDates.add(_weekStart.add(Duration(days: i)));
+    }
+  }
+
+  // ✅ Navigate to previous/next week
+  void _navigateWeek(bool isNext) {
+    setState(() {
+      if (isNext) {
+        _weekStart = _weekStart.add(const Duration(days: 7));
+        _weekEnd = _weekEnd.add(const Duration(days: 7));
+      } else {
+        _weekStart = _weekStart.subtract(const Duration(days: 7));
+        _weekEnd = _weekEnd.subtract(const Duration(days: 7));
+      }
+
+      _generateWeekDates();
+      _selectedDateIndex = 0; // Reset to Monday
+
+      print('[AttendanceScreen] Navigated to week: ${_getDateRangeString()}');
+    });
+    _loadAttendance();
+  }
+
+  String _getDateRangeString() {
+    return '${DateFormat('MMM dd').format(_weekStart)} - ${DateFormat('MMM dd, yyyy').format(_weekEnd)}';
+  }
+
+  // ✅ Load attendance from API
+  Future<void> _loadAttendance() async {
+    setState(() => _isLoading = true);
+
+    try {
+      final sessionManager = Provider.of<SessionManager>(context, listen: false);
+      final authToken = await sessionManager.loadToken();
+
+      if (authToken == null || authToken.isEmpty) {
+        print('[Attendance] ❌ No auth token');
+        _showError('Session expired. Please login again.');
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      final records = await AttendanceApi.fetchAttendance(authToken: authToken);
+
+      // Convert API data to daily format
+      _convertApiDataToDailyFormat(records);
+
+      print('[Attendance] ✅ Loaded ${records.length} records');
+    } catch (e) {
+      print('[Attendance] ❌ Error: $e');
+      _showError('Failed to load attendance. Please try again.');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  void _showError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
+  }
+
+  // ✅ Convert API records to daily format
+  void _convertApiDataToDailyFormat(List<AttendanceRecord> records) {
+    _dailyData.clear();
+
+    // Group records by full date
+    for (var record in records) {
+      final date = record.session.startTime;
+      final dateKey = DateFormat('yyyy-MM-dd').format(date);
+
+      if (!_dailyData.containsKey(dateKey)) {
+        _dailyData[dateKey] = {
+          'punchInTime': '09:05 AM',
+          'punchInStatus': 'On-time',
+          'punchOutTime': '05:00 PM',
+          'punchOutStatus': 'Completed',
+          'lectures': [],
+        };
+      }
+
+      // Add lecture
+      (_dailyData[dateKey]!['lectures'] as List).add({
+        'icon': _getIconForSubject(record.session.subjectName),
+        'subject': record.session.subjectName,
+        'time': record.session.formattedTimeRange,
+        'status': record.isPresent ? 'Attended' : 'Missed',
+      });
+    }
+  }
+
+  IconData _getIconForSubject(String subject) {
+    final sub = subject.toLowerCase();
+    if (sub.contains('physics')) return Icons.thermostat;
+    if (sub.contains('chemistry')) return Icons.science_outlined;
+    if (sub.contains('math')) return Icons.calculate_outlined;
+    if (sub.contains('biology')) return Icons.biotech_outlined;
+    if (sub.contains('computer')) return Icons.computer;
+    if (sub.contains('geography')) return Icons.public;
+    if (sub.contains('history')) return Icons.history_edu;
+    if (sub.contains('trigonometry')) return Icons.functions;
+    return Icons.book;
+  }
 
   @override
   Widget build(BuildContext context) {
-    // --- NEW: Get the data for the currently selected day ---
-    final selectedDate = _weekDates[_selectedDateIndex]['date']!;
-    final dataForSelectedDay = _dailyData[selectedDate];
-    final isFutureDate =
-        int.parse(selectedDate) > 13; // Simple logic for dummy data
+    // ✅ Safety checks
+    if (_weekDates.isEmpty) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF0F4F8),
+        appBar: AppBar(
+          title: const Text('Attendance'),
+          backgroundColor: const Color(0xFFF0F4F8),
+          elevation: 0,
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    // Ensure selectedDateIndex is valid
+    if (_selectedDateIndex >= _weekDates.length) {
+      _selectedDateIndex = 0;
+    }
+
+    final selectedDate = _weekDates[_selectedDateIndex];
+    final dateKey = DateFormat('yyyy-MM-dd').format(selectedDate);
+    final dataForSelectedDay = _dailyData[dateKey];
+
+    // Check if selected date is in future
+    final now = DateTime.now();
+    final isFutureDate = selectedDate.isAfter(DateTime(now.year, now.month, now.day));
 
     return Scaffold(
       backgroundColor: const Color(0xFFF0F4F8),
@@ -124,107 +207,186 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: const Text('Attendance',
-            style:
-                TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+            style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
-            icon: const Icon(Icons.more_vert, color: Colors.black54),
-            onPressed: () {},
+            icon: const Icon(Icons.refresh, color: Colors.black54),
+            onPressed: _isLoading ? null : _loadAttendance,
           ),
         ],
         backgroundColor: const Color(0xFFF0F4F8),
         elevation: 0,
         centerTitle: true,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 16),
-            _buildDateSelector(),
-            const SizedBox(height: 24),
-            // --- NEW: Punch info cards now display dynamic data ---
-            Row(
-              children: [
-                _buildPunchInfoCard(
-                  title: 'Punch In',
-                  time: dataForSelectedDay?['punchInTime'] ?? '-',
-                  status: dataForSelectedDay?['punchInStatus'] ?? 'N/A',
-                  statusColor: dataForSelectedDay?['punchInStatus'] == 'Late'
-                      ? Colors.orange
-                      : Colors.green,
-                ),
-                const SizedBox(width: 16),
-                _buildPunchInfoCard(
-                  title: 'Punch Out',
-                  time: dataForSelectedDay?['punchOutTime'] ?? '-',
-                  status: dataForSelectedDay?['punchOutStatus'] ?? 'N/A',
-                  statusColor: Colors.grey,
-                ),
-              ],
-            ),
-            const SizedBox(height: 32),
-            const Text(
-              "Today's Lectures",
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            // --- NEW: Conditionally render lectures or a message ---
-            _buildLecturesSection(dataForSelectedDay, isFutureDate),
-            const SizedBox(height: 24),
-          ],
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+        onRefresh: _loadAttendance,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 16),
+              // ✅ NEW: Week Navigator
+              _buildWeekNavigator(),
+              const SizedBox(height: 16),
+              // ✅ Date Selector (7 days of current week)
+              _buildDateSelector(),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  _buildPunchInfoCard(
+                    title: 'Punch In',
+                    time: dataForSelectedDay?['punchInTime'] ?? '-',
+                    status: dataForSelectedDay?['punchInStatus'] ?? 'N/A',
+                    statusColor: dataForSelectedDay?['punchInStatus'] == 'Late'
+                        ? Colors.orange
+                        : Colors.green,
+                  ),
+                  const SizedBox(width: 16),
+                  _buildPunchInfoCard(
+                    title: 'Punch Out',
+                    time: dataForSelectedDay?['punchOutTime'] ?? '-',
+                    status: dataForSelectedDay?['punchOutStatus'] ?? 'N/A',
+                    statusColor: Colors.grey,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 32),
+              Text(
+                DateFormat('EEEE, MMMM dd, yyyy').format(selectedDate),
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              _buildLecturesSection(dataForSelectedDay, isFutureDate),
+              const SizedBox(height: 24),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  /// Builds the horizontal list of dates at the top of the screen.
-  Widget _buildDateSelector() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceAround,
-      children: List.generate(_weekDates.length, (index) {
-        final dateInfo = _weekDates[index];
-        final isSelected = index == _selectedDateIndex;
-        return GestureDetector(
-          onTap: () {
-            setState(() {
-              _selectedDateIndex = index;
-            });
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-            decoration: BoxDecoration(
-              color: isSelected ? Colors.blueAccent : Colors.transparent,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              children: [
-                Text(
-                  dateInfo['day']!,
-                  style: TextStyle(
-                    color: isSelected ? Colors.white : Colors.grey,
-                    fontSize: 12,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  dateInfo['date']!,
-                  style: TextStyle(
-                    color: isSelected ? Colors.white : Colors.black87,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
+  // ✅ NEW: Week Navigator Widget
+  Widget _buildWeekNavigator() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          IconButton(
+            onPressed: _isLoading ? null : () => _navigateWeek(false),
+            icon: const Icon(Icons.arrow_back_ios, color: Colors.black54, size: 20),
+            tooltip: 'Previous Week',
+          ),
+          Text(
+            _getDateRangeString(),
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
             ),
           ),
-        );
-      }),
+          IconButton(
+            onPressed: _isLoading ? null : () => _navigateWeek(true),
+            icon: const Icon(Icons.arrow_forward_ios, color: Colors.black54, size: 20),
+            tooltip: 'Next Week',
+          ),
+        ],
+      ),
     );
   }
 
-  /// Builds the cards for "Punch In" and "Punch Out" info.
+  Widget _buildDateSelector() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: List.generate(_weekDates.length, (index) {
+          final date = _weekDates[index];
+          final isSelected = index == _selectedDateIndex;
+
+          // Check if this date has lectures
+          final dateKey = DateFormat('yyyy-MM-dd').format(date);
+          final hasLectures = _dailyData[dateKey] != null &&
+              (_dailyData[dateKey]!['lectures'] as List).isNotEmpty;
+
+          return GestureDetector(
+            onTap: () {
+              setState(() {
+                _selectedDateIndex = index;
+              });
+            },
+            child: Container(
+              width: 40,
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? Colors.blueAccent
+                    : (hasLectures ? Colors.blue.shade50 : Colors.transparent),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    DateFormat('E').format(date).substring(0, 1),
+                    style: TextStyle(
+                      color: isSelected ? Colors.white : Colors.grey,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    date.day.toString(),
+                    style: TextStyle(
+                      color: isSelected ? Colors.white : Colors.black87,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  if (hasLectures && !isSelected)
+                    Container(
+                      margin: const EdgeInsets.only(top: 4),
+                      width: 4,
+                      height: 4,
+                      decoration: const BoxDecoration(
+                        color: Colors.blueAccent,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
   Widget _buildPunchInfoCard({
     required String title,
     required String time,
@@ -258,7 +420,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
-  /// --- NEW: This widget decides whether to show lectures or a message ---
   Widget _buildLecturesSection(Map<String, dynamic>? data, bool isFuture) {
     if (isFuture) {
       return const Center(
@@ -274,19 +435,36 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     }
 
     if (data == null || (data['lectures'] as List).isEmpty) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(32.0),
-          child: Text(
-            'No lectures were scheduled for this day.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey),
+      return Center(
+        child: Container(
+          padding: const EdgeInsets.all(32),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(15),
+          ),
+          child: Column(
+            children: [
+              Icon(Icons.event_busy, size: 60, color: Colors.grey[400]),
+              const SizedBox(height: 16),
+              Text(
+                'No lectures scheduled for this day.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
           ),
         ),
       );
     }
 
-    final lectures = data['lectures'] as List<Map<String, dynamic>>;
+    // ✅ FIXED: Proper casting
+    final lectures = (data['lectures'] as List)
+        .map((e) => e as Map<String, dynamic>)
+        .toList();
+
     return ListView.separated(
       physics: const NeverScrollableScrollPhysics(),
       shrinkWrap: true,
@@ -298,7 +476,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
-  /// Builds a single card for a lecture in the list.
   Widget _buildLectureCard(Map<String, dynamic> lecture) {
     Color statusColor;
     Color statusBgColor;

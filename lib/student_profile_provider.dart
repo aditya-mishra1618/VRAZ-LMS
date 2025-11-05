@@ -1,7 +1,6 @@
-// File: lib/Student/student_profile_provider.dart
-
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'Student/models/student_profile_model.dart';
@@ -12,8 +11,9 @@ class StudentProfileProvider extends ChangeNotifier {
   static const _studentProfileKey = 'student_profile_data';
   static const _profileLastFetchKey = 'profile_last_fetch_time';
 
-  // --- Service ---
+  // --- Services ---
   final StudentProfileService _profileService = StudentProfileService();
+  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
 
   // --- State ---
   StudentProfileModel? _studentProfile;
@@ -28,18 +28,65 @@ class StudentProfileProvider extends ChangeNotifier {
   bool get isInitialized => _isInitialized;
   String? get errorMessage => _errorMessage;
   DateTime? get lastFetchTime => _lastFetchTime;
+  bool get hasData => _studentProfile != null; // ✅ ADDED
 
   // Quick access getters
   String get studentName => _studentProfile?.studentUser.fullName ?? 'Student';
-  String get studentEmail => _studentProfile?.studentUser.email ?? '';
-  String get studentPhone => _studentProfile?.studentUser.phoneNumber ?? '';
+  String get studentEmail => _studentProfile?.studentUser.email ?? 'N/A';
+  String get studentPhone => _studentProfile?.studentUser.phoneNumber ?? 'N/A';
+  String get photoUrl => _studentProfile?.studentUser.photoUrl ?? '';
   String get studentPhotoUrl => _studentProfile?.studentUser.photoUrl ?? '';
-  String get courseName => _studentProfile?.course.name ?? '';
-  String get branchName => _studentProfile?.branch.name ?? '';
-  String get currentClass => _studentProfile?.currentClass ?? '';
+  String get courseName => _studentProfile?.course.name ?? 'N/A';
+  String get branchName => _studentProfile?.branch.name ?? 'N/A';
+  String get currentClass => _studentProfile?.currentClass ?? 'N/A';
+  String get studentId => _studentProfile?.formNumber ?? 'N/A';
+  String get formNumber => _studentProfile?.formNumber ?? 'N/A';
+
+  // Additional getters
+  String get address => _studentProfile?.studentUser.address ?? 'N/A';
+  String get gender => _studentProfile?.studentUser.gender ?? 'N/A';
+  String get sessionYear => _studentProfile?.sessionYear ?? 'N/A';
+  String get status => _studentProfile?.status ?? 'N/A';
+  String get admissionDate => _studentProfile?.getFormattedAdmissionDate() ?? 'N/A';
+  String get dateOfBirth => _studentProfile?.studentUser.getFormattedDOB() ?? 'N/A';
+  int? get age => _studentProfile?.studentUser.getAge();
+
+  // Parent information
+  ParentModel? get father => _studentProfile?.getFather();
+  ParentModel? get mother => _studentProfile?.getMother();
+
+  // Fee information
+  String get courseFee => _studentProfile?.courseFee ?? 'N/A';
+  String get totalPayable => _studentProfile?.totalPayable ?? 'N/A';
+  String get totalDiscount => _studentProfile?.getTotalDiscount() ?? '0';
+  bool get isActive => _studentProfile?.isActive() ?? false;
+
+  // Emergency contact
+  String get emergencyContactName => _studentProfile?.emergencyContactName ?? 'N/A';
+  String get emergencyContactNumber => _studentProfile?.emergencyContactNumber ?? 'N/A';
+  String get emergencyContactRelation => _studentProfile?.emergencyContactRelation ?? 'N/A';
 
   StudentProfileProvider() {
     _initializeProfile();
+  }
+
+  /// ✅ FIXED: Get auth token from secure storage (matches SessionManager key)
+  Future<String?> _getAuthToken() async {
+    try {
+      // ✅ This matches SessionManager's '_activeTokenKey'
+      String? token = await _secureStorage.read(key: 'authToken');
+
+      if (token != null) {
+        print('✅ [Provider] Auth token found: ${token.substring(0, 20)}...');
+      } else {
+        print('⚠️ [Provider] No auth token found in secure storage');
+      }
+
+      return token;
+    } catch (e) {
+      print('❌ [Provider] Error reading auth token: $e');
+      return null;
+    }
   }
 
   /// Initialize by loading cached profile from storage
@@ -62,6 +109,7 @@ class StudentProfileProvider extends ChangeNotifier {
           }
 
           print('✅ Student profile loaded from cache');
+          print('👤 Cached student: ${_studentProfile?.studentUser.fullName}');
         } catch (e) {
           print('❌ Error parsing cached profile: $e');
           await clearProfile(); // Clear corrupt cache
@@ -72,6 +120,29 @@ class StudentProfileProvider extends ChangeNotifier {
     } finally {
       _isInitialized = true;
       notifyListeners();
+    }
+  }
+
+  /// ✅ ADDED: Load student profile (auto-fetches token)
+  Future<void> loadStudentProfile() async {
+    if (_isLoading) {
+      print('⚠️ [Provider] Profile already loading, skipping...');
+      return;
+    }
+
+    try {
+      final token = await _getAuthToken();
+
+      if (token == null || token.isEmpty) {
+        throw Exception('No authentication token found. Please login again.');
+      }
+
+      await fetchStudentProfile(token, forceRefresh: false);
+    } catch (e) {
+      _errorMessage = e.toString().replaceAll('Exception: ', '');
+      _isLoading = false;
+      notifyListeners();
+      print('❌ [Provider] Error in loadStudentProfile: $_errorMessage');
     }
   }
 
@@ -105,13 +176,34 @@ class StudentProfileProvider extends ChangeNotifier {
       _isLoading = false;
       _errorMessage = null;
       print('✅ Student profile fetched and cached successfully');
+      print('👤 Student: ${_studentProfile?.studentUser.fullName}');
+      print('🆔 Form Number: ${_studentProfile?.formNumber}');
       notifyListeners();
     } catch (e) {
       _isLoading = false;
-      _errorMessage = e.toString();
-      print('❌ Error fetching student profile: $e');
+      _errorMessage = e.toString().replaceAll('Exception: ', '');
+      print('❌ Error fetching student profile: $_errorMessage');
       notifyListeners();
       rethrow;
+    }
+  }
+
+  /// ✅ ADDED: Refresh profile (auto-fetches token and forces refresh)
+  Future<void> refreshProfile() async {
+    print('🔄 [Provider] Refreshing student profile...');
+
+    try {
+      final token = await _getAuthToken();
+
+      if (token == null || token.isEmpty) {
+        throw Exception('No authentication token found. Please login again.');
+      }
+
+      await fetchStudentProfile(token, forceRefresh: true);
+    } catch (e) {
+      _errorMessage = e.toString().replaceAll('Exception: ', '');
+      print('❌ [Provider] Error refreshing profile: $_errorMessage');
+      notifyListeners();
     }
   }
 
@@ -169,10 +261,15 @@ class StudentProfileProvider extends ChangeNotifier {
   }
 
   /// Refresh profile if stale
-  Future<void> refreshIfStale(String token, {int maxAgeMinutes = 30}) async {
+  Future<void> refreshIfStale({int maxAgeMinutes = 30}) async {
     if (isProfileStale(maxAgeMinutes: maxAgeMinutes)) {
-      await fetchStudentProfile(token, forceRefresh: true);
+      await refreshProfile();
     }
+  }
+
+  /// Check if profile needs to be loaded
+  bool needsLoading() {
+    return _studentProfile == null && !_isLoading && _errorMessage == null;
   }
 
   /// Get parent by relation
@@ -186,9 +283,6 @@ class StudentProfileProvider extends ChangeNotifier {
       return null;
     }
   }
-
-  /// Check if student has active status
-  bool get isActive => _studentProfile?.isActive() ?? false;
 
   /// Get formatted display information
   String get displayInfo {

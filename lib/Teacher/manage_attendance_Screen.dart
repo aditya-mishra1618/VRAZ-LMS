@@ -50,7 +50,7 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
 
   // Get token and fetch initial schedule + attendance
   Future<void> _initializeAndFetchData() async {
-    // Set initial date to today, will be corrected after fetch
+    // Set initial date to today
     _selectedDate = DateTime.now();
 
     final sessionManager = TeacherSessionManager();
@@ -123,42 +123,20 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
       );
       _currentFetchedWeekStart = weekDates.$1; // Update tracked week
 
-      // --- **MODIFIED LOGIC: Set initial date ONLY on first fetch** ---
-      if (fetchFirstAttendance) {
-        DateTime initialDisplayDate =
-            weekDates.$1; // Default to Monday of the fetched week
-        if (_allFetchedSessions.isNotEmpty) {
-          // Find the earliest day in the fetched sessions
-          _allFetchedSessions
-              .sort((a, b) => a.startTime.compareTo(b.startTime));
-          // Use the date part of the earliest session
-          initialDisplayDate = DateTime(
-              _allFetchedSessions.first.startTime.year,
-              _allFetchedSessions.first.startTime.month,
-              _allFetchedSessions.first.startTime.day);
-          print(
-              'Setting initial display date to first session date: ${DateFormat('yyyy-MM-dd').format(initialDisplayDate)}');
-        } else {
-          print(
-              'No sessions found in fetched week. Defaulting display date to Monday: ${DateFormat('yyyy-MM-dd').format(initialDisplayDate)}');
-        }
-        // Set the _selectedDate state variable *before* filtering
-        // Wrap in setState to fix date skipping bug
-        if (mounted) {
-          setState(() {
-            _selectedDate = initialDisplayDate;
-          });
-        }
-      }
-      // --- **END MODIFIED LOGIC** ---
+      // --- **BUG FIX** ---
+      // The faulty logic that reset _selectedDate to the start of the
+      // week has been removed. We now just filter for _selectedDate,
+      // which is correctly set to DateTime.now() on initial load.
+      // --- **END BUG FIX** ---
 
       _filterSessionsForDate(
-          _selectedDate); // Filter for the (potentially new) _selectedDate
+          _selectedDate); // Filter for the determined initial day
 
       // Automatically fetch attendance for the first LECTURE session of the day
       if (fetchFirstAttendance &&
           _selectedSessionEntry?.type == 'LECTURE' &&
           _selectedSessionId != null) {
+        // --- FIX: This line was causing an error, it's correct now ---
         await _fetchAttendanceData(_selectedSessionId!);
       } else {
         // If no session selected or it's not a lecture, stop loading attendance
@@ -212,7 +190,8 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
       _selectedSessionEntry = _sessionsForSelectedDay.isNotEmpty
           ? _sessionsForSelectedDay.first
           : null;
-      _selectedSessionId = _selectedSessionEntry?.sessionId;
+      // --- FIX: Access sessionId from the details map ---
+      _selectedSessionId = _selectedSessionEntry?.details['sessionId'] as int?;
 
       if (_selectedSessionEntry == null ||
           _selectedSessionEntry!.type != 'LECTURE') {
@@ -231,8 +210,9 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
   Future<void> _fetchAttendanceData(int sessionId) async {
     if (_authToken == null) return;
 
+    // --- FIX: Access sessionId from the details map ---
     if (_selectedSessionEntry?.type != 'LECTURE' ||
-        _selectedSessionEntry?.sessionId != sessionId) {
+        _selectedSessionEntry?.details['sessionId'] != sessionId) {
       print(
           "Attempted to fetch attendance for a non-lecture or mismatched session. Skipping.");
       if (mounted)
@@ -250,6 +230,7 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
     });
 
     try {
+      // --- FIX: Use the passed sessionId directly ---
       final studentsData = await _attendanceService.getAttendanceSheet(
           sessionId.toString(), _authToken!);
       if (mounted) {
@@ -392,6 +373,7 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
     setState(() => _isSubmitting = true);
 
     try {
+      // --- FIX: Use _selectedSessionId ---
       final successMessage = await _attendanceService.markAttendance(
         sessionId: _selectedSessionId!.toString(),
         students: _students,
@@ -577,17 +559,20 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
                     if (newId != null && newId != _selectedSessionEntry?.id) {
                       final newEntry = _sessionsForSelectedDay
                           .firstWhere((e) => e.id == newId);
+                      // --- FIX: Access sessionId from the details map ---
+                      final newSessionId =
+                          newEntry.details['sessionId'] as int?;
                       print(
-                          "Dropdown changed: New Session ID = ${newEntry.sessionId}, Type = ${newEntry.type}");
+                          "Dropdown changed: New Session ID = $newSessionId, Type = ${newEntry.type}");
                       setState(() {
                         _selectedSessionEntry = newEntry;
-                        _selectedSessionId = newEntry.sessionId;
+                        _selectedSessionId = newSessionId;
                         _students = []; // Clear students when changing session
                         _errorMessage = null; // Clear previous errors
                       });
-                      if (newEntry.type == 'LECTURE' &&
-                          newEntry.sessionId != null) {
-                        _fetchAttendanceData(newEntry.sessionId!);
+                      // --- FIX: Check newSessionId ---
+                      if (newEntry.type == 'LECTURE' && newSessionId != null) {
+                        _fetchAttendanceData(newSessionId);
                       } else {
                         // If not a lecture, ensure loading state is false and students are empty
                         setState(() => _isLoadingAttendance = false);

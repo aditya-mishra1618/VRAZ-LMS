@@ -8,11 +8,9 @@ import 'package:provider/provider.dart';
 import 'package:vraz_application/Student/service/assignment_api.dart';
 
 // 3. PROJECT FILES
-// This should be the path to your central navigation drawer.
-import '../student_session_manager.dart'; // Make sure this path is correct
-import 'app_drawer.dart'; // Make sure this path is correct
-import 'models/assignment_model.dart'; // Make sure this path is correct
-// Import your SessionManager
+import '../student_session_manager.dart';
+import 'app_drawer.dart';
+import 'models/assignment_model.dart';
 
 // 4. DATA MODELS
 class Assignment {
@@ -28,7 +26,10 @@ class Assignment {
   final int maxMarks;
   final String description;
   final List<Submission> submissions;
-  final List<Map<String, dynamic>>? mcqQuestions;
+  final List<McqQuestion>? mcqQuestions;
+  final bool isSubmitted;
+  final bool isGraded;
+  final int? obtainedMarks;
 
   Assignment({
     required this.id,
@@ -44,6 +45,9 @@ class Assignment {
     required this.description,
     required this.submissions,
     this.mcqQuestions,
+    required this.isSubmitted,
+    required this.isGraded,
+    this.obtainedMarks,
   });
 }
 
@@ -63,6 +67,7 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
   final ImagePicker _picker = ImagePicker();
 
   final Map<int, String> _selectedMcqAnswers = {};
+  final TextEditingController _solutionTextController = TextEditingController();
 
   // API Service instance
   late AssignmentApiService _apiService;
@@ -72,32 +77,35 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
 
   // Loading and error states
   bool _isLoading = true;
+  bool _isLoadingDetails = false;
+  bool _isSubmitting = false;
   String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
     print('🎬 DEBUG: AssignmentsScreen initialized');
-    print(
-        '📅 DEBUG: Current Date/Time: ${DateTime.now().toUtc().toIso8601String()}');
+    print('📅 DEBUG: Current Date/Time: ${DateTime.now().toUtc().toIso8601String()}');
 
-    // Initialize API service without token (will be set from SessionManager)
     _apiService = AssignmentApiService();
 
-    // Fetch assignments after the widget is built
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeAndFetchAssignments();
     });
+  }
+
+  @override
+  void dispose() {
+    _solutionTextController.dispose();
+    super.dispose();
   }
 
   /// Initialize API service with token from SessionManager and fetch assignments
   Future<void> _initializeAndFetchAssignments() async {
     print('🔧 DEBUG: Initializing API service with SessionManager');
 
-    // Get SessionManager from Provider
     final sessionManager = Provider.of<SessionManager>(context, listen: false);
 
-    // Check if user is logged in
     if (!sessionManager.isLoggedIn) {
       print('❌ DEBUG: User is not logged in');
       setState(() {
@@ -107,7 +115,6 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
       return;
     }
 
-    // Get the auth token from SessionManager
     final authToken = sessionManager.authToken;
 
     if (authToken == null || authToken.isEmpty) {
@@ -122,18 +129,14 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     print('✅ DEBUG: Auth token retrieved from SessionManager');
     print('🔐 DEBUG: Token preview: ${authToken.substring(0, 20)}...');
 
-    // Update API service with the token
     _apiService.updateBearerToken(authToken);
-
-    // Fetch assignments
     await _fetchAssignments();
   }
 
   /// Fetches assignments from the API
   Future<void> _fetchAssignments() async {
     print('🔄 DEBUG: Starting to fetch assignments from API');
-    print(
-        '⏰ DEBUG: Fetch started at: ${DateTime.now().toUtc().toIso8601String()}');
+    print('⏰ DEBUG: Fetch started at: ${DateTime.now().toUtc().toIso8601String()}');
 
     setState(() {
       _isLoading = true;
@@ -141,22 +144,15 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     });
 
     try {
-      // Call API service to fetch assignments
       final List<AssignmentResponse> apiAssignments =
-          await _apiService.fetchMyAssignments();
+      await _apiService.fetchMyAssignments();
 
-      print(
-          '✅ DEBUG: Successfully received ${apiAssignments.length} assignments from API');
-      print(
-          '⏰ DEBUG: Fetch completed at: ${DateTime.now().toUtc().toIso8601String()}');
+      print('✅ DEBUG: Successfully received ${apiAssignments.length} assignments from API');
 
-      // Convert API response to UI Assignment model
       final List<Assignment> convertedAssignments =
-          apiAssignments.map((apiAssignment) {
-        print(
-            '🔄 DEBUG: Converting assignment ID ${apiAssignment.id}: ${apiAssignment.assignmentTemplate.title}');
+      apiAssignments.map((apiAssignment) {
+        print('🔄 DEBUG: Converting assignment ID ${apiAssignment.id}: ${apiAssignment.assignmentTemplate.title}');
 
-        // Determine subject from title (you can modify this logic)
         String subject = 'General';
         final titleLower = apiAssignment.assignmentTemplate.title.toLowerCase();
 
@@ -170,57 +166,57 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
           subject = 'Science';
         }
 
-        print('📚 DEBUG: Subject identified as: $subject');
-
-        // Determine status based on submissions
+        // ✅ IMPROVED: Better status handling
         String status = 'Pending';
         String submissionDate = '';
-        String statusDetail = 'Upcoming';
+        String statusDetail = 'Not Submitted';
+        bool isSubmitted = false;
+        bool isGraded = false;
+        int? obtainedMarks;
 
         if (apiAssignment.submissions.isNotEmpty) {
           final latestSubmission = apiAssignment.submissions.first;
-          print(
-              '📝 DEBUG: Latest submission status: ${latestSubmission.status}');
-          print('📝 DEBUG: Marks: ${latestSubmission.marks}');
+          isSubmitted = true;
 
           if (latestSubmission.status == 'GRADED') {
+            isGraded = true;
+            obtainedMarks = latestSubmission.marks;
             final marksText = latestSubmission.marks != null
                 ? '${latestSubmission.marks}/${apiAssignment.maxMarks}'
-                : 'Pending';
-            status = 'Graded: $marksText';
-            submissionDate =
-                'Submitted: ${_formatDate(latestSubmission.submittedAt)}';
-            statusDetail = '';
-          } else {
+                : 'Grading Pending';
+            status = marksText;
+            submissionDate = _formatDate(latestSubmission.submittedAt);
+            statusDetail = 'Graded';
+          } else if (latestSubmission.status == 'SUBMITTED') {
             status = 'Submitted';
-            submissionDate =
-                'Submitted: ${_formatDate(latestSubmission.submittedAt)}';
-
-            // Check if overdue
-            final dueDateTime = DateTime.parse(apiAssignment.dueDate);
-            final submittedDateTime =
-                DateTime.parse(latestSubmission.submittedAt);
-            statusDetail =
-                submittedDateTime.isAfter(dueDateTime) ? 'Overdue' : 'On Time';
+            submissionDate = _formatDate(latestSubmission.submittedAt);
+            statusDetail = 'Awaiting Review';
           }
+
+          print('   - Submission Status: ${latestSubmission.status}');
+          print('   - Is Graded: $isGraded');
+          print('   - Marks: ${obtainedMarks ?? "Not graded"}');
         } else {
-          // Check if upcoming or overdue
+          // No submission yet - check if overdue
           final dueDateTime = DateTime.parse(apiAssignment.dueDate);
           final now = DateTime.now();
-          statusDetail = now.isAfter(dueDateTime) ? 'Overdue' : 'Upcoming';
+
+          if (now.isAfter(dueDateTime)) {
+            statusDetail = 'Overdue';
+            status = 'Overdue';
+          } else {
+            statusDetail = 'Pending';
+            status = 'Not Submitted';
+          }
         }
 
-        print(
-            '✅ DEBUG: Status determined - Status: $status, Detail: $statusDetail');
-
-        // Format due date
-        String dueDate = 'Due: ${_formatDate(apiAssignment.dueDate)}';
+        String dueDate = _formatDate(apiAssignment.dueDate);
 
         return Assignment(
           id: apiAssignment.id,
           subject: subject,
           title: apiAssignment.assignmentTemplate.title,
-          professor: 'Prof. Teacher', // API doesn't provide professor name
+          professor: 'Prof. Teacher',
           status: status,
           dueDate: dueDate,
           submissionDate: submissionDate,
@@ -230,34 +226,31 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
           description: apiAssignment.assignmentTemplate.description,
           submissions: apiAssignment.submissions,
           mcqQuestions: apiAssignment.assignmentTemplate.mcqQuestions,
+          isSubmitted: isSubmitted,
+          isGraded: isGraded,
+          obtainedMarks: obtainedMarks,
         );
       }).toList();
-
-      print(
-          '✅ DEBUG: Successfully converted ${convertedAssignments.length} assignments');
 
       setState(() {
         _assignments = convertedAssignments;
         _isLoading = false;
       });
 
-      print('✅ DEBUG: UI updated with assignments');
+      print('✅ DEBUG: UI updated with ${_assignments.length} assignments');
     } catch (e) {
       print('❌ DEBUG: Error fetching assignments: $e');
-      print(
-          '❌ DEBUG: Error occurred at: ${DateTime.now().toUtc().toIso8601String()}');
 
       setState(() {
         _errorMessage = e.toString().replaceAll('Exception: ', '');
         _isLoading = false;
       });
 
-      // Show error snackbar
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content:
-                Text('Error: ${e.toString().replaceAll('Exception: ', '')}'),
+            Text('Error: ${e.toString().replaceAll('Exception: ', '')}'),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 5),
             action: SnackBarAction(
@@ -268,6 +261,83 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
           ),
         );
       }
+    }
+  }
+
+  /// Fetch detailed assignment when user taps on it
+  Future<void> _selectAssignment(Assignment assignment) async {
+    print('🎯 DEBUG: Assignment selected: ${assignment.title} (ID: ${assignment.id})');
+
+    // Reset state
+    _uploadedFiles.clear();
+    _selectedMcqAnswers.clear();
+    _solutionTextController.clear();
+
+    // If MCQ assignment, fetch detailed questions
+    if (assignment.type == 'MCQ') {
+      setState(() {
+        _isLoadingDetails = true;
+        _selectedAssignment = assignment;
+      });
+
+      try {
+        print('📡 DEBUG: Fetching detailed assignment data...');
+        final detailedAssignment = await _apiService.getAssignmentDetails(assignment.id);
+
+        print('✅ DEBUG: Detailed assignment fetched successfully');
+
+        // Update the assignment with detailed MCQ questions
+        final updatedAssignment = Assignment(
+          id: detailedAssignment.id,
+          subject: assignment.subject,
+          title: detailedAssignment.assignmentTemplate.title,
+          professor: assignment.professor,
+          status: assignment.status,
+          dueDate: assignment.dueDate,
+          submissionDate: assignment.submissionDate,
+          statusDetail: assignment.statusDetail,
+          type: detailedAssignment.assignmentTemplate.type,
+          maxMarks: detailedAssignment.maxMarks,
+          description: detailedAssignment.assignmentTemplate.description,
+          submissions: detailedAssignment.submissions,
+          mcqQuestions: detailedAssignment.assignmentTemplate.mcqQuestions,
+          isSubmitted: assignment.isSubmitted,
+          isGraded: assignment.isGraded,
+          obtainedMarks: assignment.obtainedMarks,
+        );
+
+        setState(() {
+          _selectedAssignment = updatedAssignment;
+          _isLoadingDetails = false;
+        });
+
+        print('✅ DEBUG: Assignment details loaded with ${updatedAssignment.mcqQuestions?.length ?? 0} MCQ questions');
+      } catch (e) {
+        print('❌ DEBUG: Error fetching assignment details: $e');
+
+        setState(() {
+          _isLoadingDetails = false;
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to load assignment details: ${e.toString().replaceAll('Exception: ', '')}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+
+        // Still show the basic assignment
+        setState(() {
+          _selectedAssignment = assignment;
+        });
+      }
+    } else {
+      // For Theory assignments, just show directly
+      setState(() {
+        _selectedAssignment = assignment;
+      });
     }
   }
 
@@ -302,8 +372,7 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
   }
 
   Future<void> _pickImage(ImageSource source) async {
-    print(
-        '📸 DEBUG: Picking image from ${source == ImageSource.camera ? "Camera" : "Gallery"}');
+    print('📸 DEBUG: Picking image from ${source == ImageSource.camera ? "Camera" : "Gallery"}');
 
     final XFile? pickedFile = await _picker.pickImage(source: source);
     if (pickedFile != null) {
@@ -317,16 +386,6 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     }
   }
 
-  void _selectAssignment(Assignment assignment) {
-    print(
-        '🎯 DEBUG: Assignment selected: ${assignment.title} (ID: ${assignment.id})');
-    setState(() {
-      _selectedAssignment = assignment; // Just set the assignment
-      _uploadedFiles.clear();
-      _selectedMcqAnswers.clear();
-    });
-  }
-
   void _goBackToList() {
     print('⬅️ DEBUG: Going back to assignment list');
     setState(() {
@@ -334,44 +393,142 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     });
   }
 
-  void _submitAssignment() {
+  /// Submit Assignment with API integration
+  Future<void> _submitAssignment() async {
+    if (_selectedAssignment == null) return;
+
     print('📤 DEBUG: ========== ASSIGNMENT SUBMISSION ==========');
     print('📤 DEBUG: Assignment Title: ${_selectedAssignment!.title}');
     print('📤 DEBUG: Assignment ID: ${_selectedAssignment!.id}');
     print('📤 DEBUG: Assignment Type: ${_selectedAssignment!.type}');
-    print(
-        '📤 DEBUG: Submission Time: ${DateTime.now().toUtc().toIso8601String()}');
+    print('📤 DEBUG: Submission Time: ${DateTime.now().toUtc().toIso8601String()}');
 
     final bool hasMcqs = _selectedAssignment!.type == 'MCQ';
 
-    if (hasMcqs) {
-      print('📝 DEBUG: MCQ Assignment Submission');
-      print('📝 DEBUG: Total Questions: ${_selectedMcqAnswers.length}');
-      print('📝 DEBUG: Selected Answers: $_selectedMcqAnswers');
+    setState(() {
+      _isSubmitting = true;
+    });
 
-      _selectedMcqAnswers.forEach((questionIndex, answer) {
-        print('📝 DEBUG:   Q${questionIndex + 1}: $answer');
+    try {
+      if (hasMcqs) {
+        // MCQ Submission
+        print('📝 DEBUG: MCQ Assignment Submission');
+        print('📝 DEBUG: Total Questions Answered: ${_selectedMcqAnswers.length}');
+
+        // Convert Map<int, String> to Map<String, String> with question IDs
+        final Map<String, String> mcqAnswersForApi = {};
+        _selectedMcqAnswers.forEach((questionIndex, selectedOption) {
+          final questionId = _selectedAssignment!.mcqQuestions![questionIndex].id.toString();
+          mcqAnswersForApi[questionId] = selectedOption;
+          print('📝 DEBUG:   Question ID $questionId: $selectedOption');
+        });
+
+        print('📝 DEBUG: Formatted MCQ Answers: $mcqAnswersForApi');
+
+        await _apiService.submitMcqAssignment(
+          assignmentId: _selectedAssignment!.id,
+          mcqAnswers: mcqAnswersForApi,
+        );
+
+        print('✅ DEBUG: MCQ assignment submitted successfully!');
+      } else {
+        // ✅ Theory Submission - Attachments are OPTIONAL
+        print('📁 DEBUG: Theory Assignment Submission');
+
+        final String solutionText = _solutionTextController.text.trim();
+
+        // ✅ FIXED: Only text is required, files are optional
+        if (solutionText.isEmpty) {
+          throw Exception('Please provide a text solution');
+        }
+
+        print('📁 DEBUG: Solution Text: $solutionText');
+        print('📁 DEBUG: Total Files to upload: ${_uploadedFiles.length}');
+
+        // Upload files and get URLs (optional)
+        List<String> uploadedUrls = [];
+
+        if (_uploadedFiles.isNotEmpty) {
+          print('📤 DEBUG: Starting file uploads...');
+
+          for (int i = 0; i < _uploadedFiles.length; i++) {
+            final file = _uploadedFiles[i];
+            print('📤 DEBUG: Uploading file ${i + 1}/${_uploadedFiles.length}: ${file.path}');
+
+            try {
+              final url = await _apiService.uploadFile(file);
+              uploadedUrls.add(url);
+              print('✅ DEBUG: File ${i + 1} uploaded successfully: $url');
+
+              // Show progress
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Uploaded ${i + 1}/${_uploadedFiles.length} files'),
+                    duration: const Duration(seconds: 1),
+                  ),
+                );
+              }
+            } catch (e) {
+              print('❌ DEBUG: Failed to upload file ${i + 1}: $e');
+              throw Exception('Failed to upload file ${i + 1}: ${e.toString()}');
+            }
+          }
+
+          print('✅ DEBUG: All files uploaded successfully!');
+          print('📎 DEBUG: Uploaded URLs: $uploadedUrls');
+        } else {
+          print('ℹ️ DEBUG: No files to upload (optional)');
+        }
+
+        // Submit assignment with text and URLs
+        await _apiService.submitTheoryAssignment(
+          assignmentId: _selectedAssignment!.id,
+          solutionText: solutionText,
+          solutionAttachments: uploadedUrls.isEmpty ? [] : uploadedUrls,
+        );
+
+        print('✅ DEBUG: Theory assignment submitted successfully!');
+      }
+
+      setState(() {
+        _isSubmitting = false;
       });
-    } else {
-      print('📁 DEBUG: Theory Assignment Submission');
-      print('📁 DEBUG: Total Files: ${_uploadedFiles.length}');
 
-      for (var i = 0; i < _uploadedFiles.length; i++) {
-        print('📁 DEBUG:   File ${i + 1}: ${_uploadedFiles[i].path}');
-        print('📁 DEBUG:   File Size: ${_uploadedFiles[i].lengthSync()} bytes');
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Assignment submitted successfully! ✅'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+
+      print('📤 DEBUG: ========================================');
+
+      // Refresh assignments and go back
+      await _fetchAssignments();
+      _goBackToList();
+
+    } catch (e) {
+      print('❌ DEBUG: Submission failed: $e');
+
+      setState(() {
+        _isSubmitting = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Submission failed: ${e.toString().replaceAll('Exception: ', '')}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
       }
     }
-
-    // TODO: Implement actual API submission here
-    print('⚠️ DEBUG: API submission endpoint not yet implemented');
-    print('📤 DEBUG: ========================================');
-
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-      content: Text('Assignment submitted successfully!'),
-      backgroundColor: Colors.green,
-    ));
-
-    _goBackToList();
   }
 
   @override
@@ -410,91 +567,104 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
       ),
       body: _isLoading
           ? const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Loading assignments...'),
-                ],
-              ),
-            )
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Loading assignments...'),
+          ],
+        ),
+      )
           : _errorMessage != null && _assignments.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error_outline,
-                          size: 64, color: Colors.red),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'Error loading assignments',
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 32),
-                        child: Text(
-                          _errorMessage!,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.grey[600]),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      ElevatedButton.icon(
-                        onPressed: _fetchAssignments,
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                )
-              : _assignments.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.assignment_outlined,
-                              size: 64, color: Colors.grey[400]),
-                          const SizedBox(height: 16),
-                          Text(
-                            'No assignments found',
-                            style: TextStyle(
-                                fontSize: 18, color: Colors.grey[600]),
-                          ),
-                          const SizedBox(height: 24),
-                          ElevatedButton.icon(
-                            onPressed: _fetchAssignments,
-                            icon: const Icon(Icons.refresh),
-                            label: const Text('Refresh'),
-                          ),
-                        ],
-                      ),
-                    )
-                  : ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: _assignments.length,
-                      itemBuilder: (context, index) {
-                        final assignment = _assignments[index];
-                        return _buildAssignmentCard(assignment);
-                      },
-                    ),
+          ? Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline,
+                size: 64, color: Colors.red),
+            const SizedBox(height: 16),
+            const Text(
+              'Error loading assignments',
+              style: TextStyle(
+                  fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Text(
+                _errorMessage!,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _fetchAssignments,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      )
+          : _assignments.isEmpty
+          ? Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.assignment_outlined,
+                size: 64, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(
+              'No assignments found',
+              style: TextStyle(
+                  fontSize: 18, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _fetchAssignments,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Refresh'),
+            ),
+          ],
+        ),
+      )
+          : ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _assignments.length,
+        itemBuilder: (context, index) {
+          final assignment = _assignments[index];
+          return _buildAssignmentCard(assignment);
+        },
+      ),
     );
   }
 
   Widget _buildAssignmentCard(Assignment assignment) {
-    final statusColor = assignment.status.contains('Pending')
-        ? Colors.orange
-        : assignment.status.contains('Submitted')
-            ? Colors.blue
-            : Colors.green;
+    // ✅ IMPROVED: Better color coding based on status
+    Color statusColor;
+    Color cardBorderColor;
+
+    if (assignment.isGraded) {
+      statusColor = Colors.green;
+      cardBorderColor = Colors.green.shade200;
+    } else if (assignment.isSubmitted) {
+      statusColor = Colors.blue;
+      cardBorderColor = Colors.blue.shade200;
+    } else if (assignment.statusDetail == 'Overdue') {
+      statusColor = Colors.red;
+      cardBorderColor = Colors.red.shade200;
+    } else {
+      statusColor = Colors.orange;
+      cardBorderColor = Colors.grey.shade200;
+    }
+
     return Card(
       elevation: 0,
       margin: const EdgeInsets.only(bottom: 16),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey[200]!),
+        side: BorderSide(color: cardBorderColor, width: 2),
       ),
       child: InkWell(
         onTap: () => _selectAssignment(assignment),
@@ -511,8 +681,8 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
                     assignment.subject == 'Physics'
                         ? Icons.rocket_launch_outlined
                         : assignment.subject == 'Maths'
-                            ? Icons.calculate_outlined
-                            : Icons.science_outlined,
+                        ? Icons.calculate_outlined
+                        : Icons.science_outlined,
                     color: Colors.grey[600],
                     size: 32,
                   ),
@@ -529,15 +699,27 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
                         const SizedBox(height: 4),
                         Text(
                           assignment.professor,
-                          style: TextStyle(color: Colors.grey[600]),
+                          style: TextStyle(color: Colors.grey[600], fontSize: 12),
                         ),
                       ],
                     ),
                   ),
-                  Text(
-                    assignment.status,
-                    style: TextStyle(
-                        color: statusColor, fontWeight: FontWeight.bold),
+                  // ✅ IMPROVED: Better status badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: statusColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: statusColor, width: 1),
+                    ),
+                    child: Text(
+                      assignment.status,
+                      style: TextStyle(
+                        color: statusColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -545,25 +727,80 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    assignment.dueDate,
-                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                  Row(
+                    children: [
+                      Icon(Icons.calendar_today, size: 14, color: Colors.grey[600]),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Due: ${assignment.dueDate}',
+                        style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                      ),
+                    ],
                   ),
-                  Text(
-                    assignment.statusDetail,
-                    style: TextStyle(
-                        color: assignment.statusDetail == 'Upcoming'
-                            ? Colors.green
-                            : Colors.red,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold),
-                  ),
-                  Text(
-                    assignment.submissionDate,
-                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                  )
+                  if (assignment.isSubmitted)
+                    Row(
+                      children: [
+                        Icon(Icons.check_circle, size: 14, color: statusColor),
+                        const SizedBox(width: 4),
+                        Text(
+                          assignment.submissionDate,
+                          style: TextStyle(color: statusColor, fontSize: 12, fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    )
+                  else
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: statusColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        assignment.statusDetail,
+                        style: TextStyle(
+                          color: statusColor,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
                 ],
-              )
+              ),
+              // ✅ NEW: Show marks if graded
+              if (assignment.isGraded) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.green.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.grade, color: Colors.green.shade700, size: 20),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Score: ${assignment.obtainedMarks}/${assignment.maxMarks}',
+                        style: TextStyle(
+                          color: Colors.green.shade900,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${((assignment.obtainedMarks! / assignment.maxMarks) * 100).toStringAsFixed(1)}%',
+                        style: TextStyle(
+                          color: Colors.green.shade700,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -572,71 +809,49 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
   }
 
   Widget _buildAssignmentDetailView(Assignment assignment) {
-    print(
-        '🔍 DEBUG: Displaying assignment details for: ${assignment.title} (ID: ${assignment.id})');
+    print('🔍 DEBUG: Displaying assignment details for: ${assignment.title} (ID: ${assignment.id})');
 
-    // Use data from the (now complete) assignment object
-    final String description = assignment.description;
-    final bool hasMcqs = assignment.type == 'MCQ';
-    final List<Map<String, dynamic>>? mcqQuestions = assignment.mcqQuestions;
-
-    print('📝 DEBUG: Assignment type: ${assignment.type}, Has MCQs: $hasMcqs');
-
-    // --- JEE MAINS/ADVANCED LEVEL DUMMY QUESTIONS ---
-    final List<Map<String, dynamic>> dummyMcqQuestions = [
-      {
-        'question':
-            'Physics: A block of mass m is placed on a smooth inclined plane of inclination θ with the horizontal. The force exerted by the plane on the block has a magnitude of:',
-        'options': ['mg', 'mg cos(θ)', 'mg sin(θ)', 'mg tan(θ)']
-      },
-      {
-        'question': 'Chemistry: The IUPAC name of CH3COCH(CH3)2 is:',
-        'options': [
-          'Isopropyl methyl ketone',
-          '2-Methyl-3-butanone',
-          '3-Methyl-2-butanone',
-          '4-Methyl-2-pentanone'
-        ]
-      },
-      {
-        'question':
-            'Maths: If the lines 2x + 3y + 1 = 0 and 3x - y - 4 = 0 lie along diameters of a circle of circumference 10π, then the equation of the circle is:',
-        'options': [
-          'x² + y² - 2x + 2y - 23 = 0',
-          'x² + y² - 2x - 2y - 23 = 0',
-          'x² + y² + 2x + 2y - 23 = 0',
-          'x² + y² + 2x - 2y - 23 = 0'
-        ]
-      },
-      {
-        'question':
-            'Physics: Two particles A and B of equal mass are suspended from two massless springs of spring constants k1 and k2, respectively. If the maximum velocities, during oscillations, are equal, the ratio of amplitudes of A and B is:',
-        'options': ['√(k1/k2)', 'k1/k2', '√(k2/k1)', 'k2/k1']
-      },
-      {
-        'question':
-            'Maths: The value of the integral ∫(from 0 to π/2) [sin(x) / (sin(x) + cos(x))] dx is:',
-        'options': ['π/4', 'π/2', 'π', '0']
-      },
-    ];
-    // --- End of Dummy Questions ---
-
-    // Determine which questions to display
-    final List<Map<String, dynamic>> questionsToDisplay;
-    if (hasMcqs && mcqQuestions != null && mcqQuestions.isNotEmpty) {
-      print(
-          '📝 DEBUG: Using REAL ${mcqQuestions.length} MCQ questions from API');
-      questionsToDisplay = mcqQuestions;
-    } else if (hasMcqs) {
-      print('📝 DEBUG: Using DUMMY MCQ questions as API data is missing');
-      questionsToDisplay =
-          dummyMcqQuestions; // Use dummy if real ones are missing
-    } else {
-      print('📝 DEBUG: No MCQ questions section needed (Theory assignment)');
-      questionsToDisplay = []; // Empty list for non-MCQ assignments
+    if (_isLoadingDetails) {
+      return Scaffold(
+        backgroundColor: Colors.white,
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.black54),
+            onPressed: _goBackToList,
+          ),
+          title: const Text('Assignment Details',
+              style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+          backgroundColor: Colors.white,
+          elevation: 0,
+          centerTitle: true,
+        ),
+        body: const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Loading assignment details...'),
+            ],
+          ),
+        ),
+      );
     }
 
-    // --- Dummy static data ---
+    final String description = assignment.description;
+    final bool hasMcqs = assignment.type == 'MCQ';
+    final List<McqQuestion> questionsToDisplay = assignment.mcqQuestions ?? [];
+
+    print('📝 DEBUG: Assignment type: ${assignment.type}, Has MCQs: $hasMcqs');
+    print('📝 DEBUG: MCQ Questions count: ${questionsToDisplay.length}');
+    print('📝 DEBUG: Is Submitted: ${assignment.isSubmitted}');
+    print('📝 DEBUG: Is Graded: ${assignment.isGraded}');
+
+    // If already submitted, show submission details instead
+    if (assignment.isSubmitted) {
+      return _buildSubmissionDetailsView(assignment);
+    }
+
     final dummyHowToSteps = [
       "Read the assignment description carefully.",
       "Complete the assignment according to the instructions.",
@@ -662,7 +877,7 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
         ),
         title: const Text('Assignment Details',
             style:
-                TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+            TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
         backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
@@ -674,8 +889,26 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
           children: [
             Text('${assignment.subject}: ${assignment.title}',
                 style:
-                    const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
+                const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(Icons.calendar_today, size: 16, color: Colors.grey[600]),
+                const SizedBox(width: 6),
+                Text(
+                  'Due: ${assignment.dueDate}',
+                  style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                ),
+                const SizedBox(width: 16),
+                Icon(Icons.score, size: 16, color: Colors.grey[600]),
+                const SizedBox(width: 6),
+                Text(
+                  'Max Marks: ${assignment.maxMarks}',
+                  style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
             Text(description,
                 style: TextStyle(color: Colors.grey[700], height: 1.5)),
             const SizedBox(height: 24),
@@ -684,7 +917,7 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
             const SizedBox(height: 12),
             ...List.generate(
                 dummyHowToSteps.length,
-                (index) => _buildStepRow(
+                    (index) => _buildStepRow(
                     (index + 1).toString(), dummyHowToSteps[index])),
             const SizedBox(height: 24),
             const Text('Step-by-step Guide',
@@ -693,34 +926,54 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
             ...dummyGuideSteps.map((step) =>
                 _buildGuideCard(step['title']!, step['description']!)),
 
-            // --- This section uses questionsToDisplay ---
             if (hasMcqs && questionsToDisplay.isNotEmpty) ...[
               const SizedBox(height: 24),
-              const Text('MCQ Challenge',
+              const Text('MCQ Questions',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
               ListView.separated(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                itemCount: questionsToDisplay.length, // Use determined list
+                itemCount: questionsToDisplay.length,
                 itemBuilder: (context, index) {
-                  // Use determined list
                   return _buildMcqCard(questionsToDisplay[index], index);
                 },
                 separatorBuilder: (context, index) =>
-                    const SizedBox(height: 16),
+                const SizedBox(height: 16),
               ),
             ],
-            // --- End of MCQ section update ---
 
             if (!hasMcqs) ...[
               const SizedBox(height: 24),
-              const Text('Your Submission',
+              const Text('Your Solution',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
+              // ✅ FIXED: Added onChanged to trigger setState
+              TextField(
+                controller: _solutionTextController,
+                maxLines: 6,
+                onChanged: (value) {
+                  // ✅ Trigger rebuild when text changes
+                  setState(() {
+                    print('📝 DEBUG: Text changed, length: ${value.length}');
+                  });
+                },
+                decoration: InputDecoration(
+                  hintText: 'Enter your solution here... (Optional if attaching files)',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  filled: true,
+                  fillColor: Colors.grey[50],
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('Attachments (Optional)',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
               if (_uploadedFiles.isEmpty)
-                const Text('No files uploaded yet.',
-                    style: TextStyle(color: Colors.grey))
+                Text('No files added. You can optionally attach files using buttons below.',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 14))
               else
                 ..._uploadedFiles.map((file) {
                   final fileName = file.path.split('/').last;
@@ -731,9 +984,276 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
           ],
         ),
       ),
-      // Pass the *correct* list of questions to the footer
       bottomNavigationBar:
-          _buildSubmissionFooter(assignment, questionsToDisplay),
+      _buildSubmissionFooter(assignment, questionsToDisplay),
+    );
+  }
+
+
+  // ✅ NEW: Submission Details View (shown after submission)
+  Widget _buildSubmissionDetailsView(Assignment assignment) {
+    final submission = assignment.submissions.isNotEmpty
+        ? assignment.submissions.first
+        : null;
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.black54),
+          onPressed: _goBackToList,
+        ),
+        title: const Text('Submission Details',
+            style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: true,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Assignment Info
+            Text('${assignment.subject}: ${assignment.title}',
+                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+
+            // Submission Status Card
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: assignment.isGraded
+                    ? Colors.green.shade50
+                    : Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: assignment.isGraded
+                      ? Colors.green.shade200
+                      : Colors.blue.shade200,
+                  width: 2,
+                ),
+              ),
+              child: Column(
+                children: [
+                  Icon(
+                    assignment.isGraded
+                        ? Icons.check_circle
+                        : Icons.pending_actions,
+                    size: 64,
+                    color: assignment.isGraded
+                        ? Colors.green.shade700
+                        : Colors.blue.shade700,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    assignment.isGraded ? 'Graded' : 'Submitted',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: assignment.isGraded
+                          ? Colors.green.shade900
+                          : Colors.blue.shade900,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  if (assignment.isGraded) ...[
+                    Text(
+                      '${assignment.obtainedMarks} / ${assignment.maxMarks}',
+                      style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.green.shade700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${((assignment.obtainedMarks! / assignment.maxMarks) * 100).toStringAsFixed(1)}%',
+                      style: TextStyle(
+                        fontSize: 18,
+                        color: Colors.green.shade600,
+                      ),
+                    ),
+                  ] else ...[
+                    Text(
+                      'Awaiting Review',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.blue.shade700,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  Text(
+                    'Submitted on: ${assignment.submissionDate}',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            // Submission Details
+            const Text(
+              'Your Submission',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+
+            if (submission != null) ...[
+              // For Theory assignments
+              if (assignment.type == 'Theory') ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Solution Text:',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        submission.solutionText.isNotEmpty
+                            ? submission.solutionText
+                            : 'No text provided',
+                        style: TextStyle(color: Colors.grey[700]),
+                      ),
+                      if (submission.solutionAttachments.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Attachments:',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        ...submission.solutionAttachments.map((url) =>
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.attach_file, size: 16, color: Colors.grey[600]),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      url.toString(),
+                                      style: TextStyle(color: Colors.blue[700]),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+
+              // For MCQ assignments
+              if (assignment.type == 'MCQ' && submission.mcqAnswers.isNotEmpty) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Your Answers:',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ...submission.mcqAnswers.entries.map((entry) =>
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 32,
+                                  height: 32,
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue.shade100,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      'Q${entry.key}',
+                                      style: TextStyle(
+                                        color: Colors.blue.shade900,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    'Answer: ${entry.value}',
+                                    style: TextStyle(color: Colors.grey[700]),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+
+            const SizedBox(height: 24),
+
+            // Info message
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.blue.shade700),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      assignment.isGraded
+                          ? 'Your assignment has been graded. Check your score above.'
+                          : 'Your assignment has been submitted and is awaiting review by your teacher.',
+                      style: TextStyle(color: Colors.blue.shade900),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -772,13 +1292,9 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     );
   }
 
-  Widget _buildMcqCard(Map<String, dynamic> mcqData, int questionIndex) {
-    // API data is assumed to have 'question' (String) and 'options' (List<String>)
-    final String question = mcqData['question'] ?? 'No question text found';
-    final List<String> options = (mcqData['options'] as List<dynamic>?)
-            ?.map((e) => e.toString())
-            .toList() ??
-        [];
+  Widget _buildMcqCard(McqQuestion mcqQuestion, int questionIndex) {
+    final String question = mcqQuestion.questionText;
+    final List<String> options = mcqQuestion.options.map((o) => o.optionText).toList();
 
     return Card(
       elevation: 0,
@@ -803,8 +1319,7 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
                 value: option,
                 groupValue: _selectedMcqAnswers[questionIndex],
                 onChanged: (value) {
-                  print(
-                      '✅ DEBUG: MCQ Answer selected - Q${questionIndex + 1}: $value');
+                  print('✅ DEBUG: MCQ Answer selected - Q${questionIndex + 1}: $value');
                   setState(() {
                     if (value != null) {
                       _selectedMcqAnswers[questionIndex] = value;
@@ -824,6 +1339,7 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
   Widget _buildSubmissionTile(String fileName, IconData icon) {
     return Card(
       elevation: 0,
+      margin: const EdgeInsets.only(bottom: 8),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(color: Colors.grey[200]!),
@@ -847,49 +1363,139 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
   }
 
   Widget _buildSubmissionFooter(
-      Assignment assignment, List<Map<String, dynamic>> currentQuestions) {
+      Assignment assignment, List<McqQuestion> currentQuestions) {
     final bool hasMcqs = assignment.type == 'MCQ';
-    // Use the length of the *actually displayed* questions
     final int totalMcqs = currentQuestions.length;
     final bool allMcqsAnswered = _selectedMcqAnswers.length == totalMcqs &&
-        totalMcqs > 0; // Check totalMcqs > 0
+        totalMcqs > 0;
 
     bool isSubmitEnabled;
+    String buttonHint = '';
+
     if (hasMcqs) {
-      isSubmitEnabled = allMcqsAnswered;
-      print(
-          '🎯 DEBUG: MCQ Progress - Answered: ${_selectedMcqAnswers.length}/$totalMcqs');
+      isSubmitEnabled = allMcqsAnswered && !_isSubmitting;
+      buttonHint = allMcqsAnswered
+          ? 'All questions answered'
+          : 'Please answer all ${totalMcqs} questions';
+      print('🎯 DEBUG: MCQ Progress - Answered: ${_selectedMcqAnswers.length}/$totalMcqs');
     } else {
-      isSubmitEnabled = _uploadedFiles.isNotEmpty;
-      print('📁 DEBUG: Files uploaded: ${_uploadedFiles.length}');
+      // ✅ FIXED: Check current values
+      final bool hasText = _solutionTextController.text.trim().isNotEmpty;
+      final bool hasFiles = _uploadedFiles.isNotEmpty;
+
+      isSubmitEnabled = (hasText || hasFiles) && !_isSubmitting;
+
+      print('📁 DEBUG: ===== SUBMIT BUTTON STATE CHECK =====');
+      print('📁 DEBUG: Solution text: "${_solutionTextController.text}"');
+      print('📁 DEBUG: Solution text length: ${_solutionTextController.text.length}');
+      print('📁 DEBUG: Has text (trimmed): $hasText');
+      print('📁 DEBUG: Files count: ${_uploadedFiles.length}');
+      print('📁 DEBUG: Has files: $hasFiles');
+      print('📁 DEBUG: Is submitting: $_isSubmitting');
+      print('📁 DEBUG: Submit enabled: $isSubmitEnabled');
+      print('📁 DEBUG: =====================================');
+
+      if (hasText && hasFiles) {
+        buttonHint = 'Ready to submit with text + ${_uploadedFiles.length} file(s)';
+      } else if (hasText) {
+        buttonHint = 'Ready to submit with text solution';
+      } else if (hasFiles) {
+        buttonHint = 'Ready to submit with ${_uploadedFiles.length} file(s)';
+      } else {
+        buttonHint = 'Provide text solution OR attach files to submit';
+      }
     }
 
-    // Rest of the footer code remains the same...
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border(top: BorderSide(color: Colors.grey[200]!, width: 1.0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, -2),
+          ),
+        ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Show hint text
+          if (buttonHint.isNotEmpty) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: isSubmitEnabled
+                    ? Colors.green.shade50
+                    : Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: isSubmitEnabled
+                      ? Colors.green.shade200
+                      : Colors.orange.shade200,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    isSubmitEnabled ? Icons.check_circle : Icons.info_outline,
+                    size: 16,
+                    color: isSubmitEnabled
+                        ? Colors.green.shade700
+                        : Colors.orange.shade700,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      buttonHint,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isSubmitEnabled
+                            ? Colors.green.shade900
+                            : Colors.orange.shade900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // Submit button
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              icon: const Icon(Icons.upload_file, color: Colors.white),
-              label: const Text('Submit Assignment',
-                  style: TextStyle(color: Colors.white, fontSize: 16)),
+              icon: _isSubmitting
+                  ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              )
+                  : const Icon(Icons.upload_file, color: Colors.white),
+              label: Text(
+                _isSubmitting ? 'Submitting...' : 'Submit Assignment',
+                style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
               onPressed: isSubmitEnabled ? _submitAssignment : null,
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blueAccent,
-                padding: const EdgeInsets.symmetric(vertical: 14),
+                padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12)),
                 disabledBackgroundColor: Colors.grey.shade300,
+                elevation: isSubmitEnabled ? 2 : 0,
               ),
             ),
           ),
+
+          // Camera and Gallery buttons for Theory
           if (!hasMcqs) ...[
             const SizedBox(height: 12),
             Row(
@@ -898,7 +1504,7 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
                   child: OutlinedButton.icon(
                     icon: const Icon(Icons.camera_alt_outlined),
                     label: const Text('Camera'),
-                    onPressed: () => _pickImage(ImageSource.camera),
+                    onPressed: _isSubmitting ? null : () => _pickImage(ImageSource.camera),
                     style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         shape: RoundedRectangleBorder(
@@ -910,7 +1516,7 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
                   child: OutlinedButton.icon(
                     icon: const Icon(Icons.photo_library_outlined),
                     label: const Text('Gallery'),
-                    onPressed: () => _pickImage(ImageSource.gallery),
+                    onPressed: _isSubmitting ? null : () => _pickImage(ImageSource.gallery),
                     style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         shape: RoundedRectangleBorder(
@@ -924,4 +1530,4 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
       ),
     );
   }
-} // End of _AssignmentsScreenState
+}

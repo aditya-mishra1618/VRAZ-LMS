@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:vraz_application/splash_screen.dart'; // For logout navigation
-import 'package:vraz_application/student_session_manager.dart'; // Import SessionManager for logout
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:vraz_application/Student/service/firebase_notification_service.dart';
+import 'package:vraz_application/home_screen.dart';
+import 'package:vraz_application/student_session_manager.dart';
+import 'package:vraz_application/universal_notification_service.dart';
 
+import '../student_profile_provider.dart';
 import 'assignment.dart';
 import 'attendance.dart';
 import 'courses.dart';
-// --- FIX: Import the new Doubt Lecture screen ---
 import 'doubt_lecture_screen.dart';
 import 'doubts.dart';
 import 'feedback.dart';
@@ -15,130 +19,279 @@ import 'result.dart';
 import 'student_id.dart';
 import 'timetable.dart';
 
-// Central navigation drawer for the student section.
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
 
   @override
   Widget build(BuildContext context) {
-    // Access SessionManager to handle logout
     final sessionManager = Provider.of<SessionManager>(context, listen: false);
 
     return Drawer(
-      child: ListView(
-        padding: EdgeInsets.zero,
-        children: <Widget>[
-          // Drawer Header with user info (replace with dynamic data if needed)
-          const UserAccountsDrawerHeader(
-            accountName: Text(
-              'Aryan Sharma', // Placeholder name
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-            ),
-            accountEmail: Text('aryan.sharma@example.com'), // Placeholder email
-            currentAccountPicture: CircleAvatar(
-              backgroundImage: AssetImage('assets/profile.png'), // Placeholder
-            ),
-            decoration: BoxDecoration(
-              color: Colors.blueAccent,
-            ),
-          ),
-          // Navigation Items
-          _buildDrawerItem(
-            icon: Icons.dashboard_outlined,
-            text: 'Dashboard',
-            onTap: () {
-              // --- KEY CHANGE 1: Fixed Dashboard Navigation ---
-              Navigator.pop(context); // Close drawer
-              // Pop all screens until we get back to the first (root) screen
-              Navigator.popUntil(context, (route) => route.isFirst);
-            },
-          ),
-          _buildDrawerItem(
-            icon: Icons.school_outlined,
-            text: 'Courses',
-            onTap: () => _navigateToScreen(context, const CoursesScreen()),
-          ),
-          _buildDrawerItem(
-            icon: Icons.calendar_today_outlined,
-            text: 'Attendance',
-            onTap: () => _navigateToScreen(context, const AttendanceScreen()),
-          ),
-          _buildDrawerItem(
-            icon: Icons.schedule_outlined,
-            text: 'Timetable',
-            onTap: () => _navigateToScreen(context, const TimetableScreen()),
-          ),
-          // --- NEW: Added Doubt Lecture item ---
-          _buildDrawerItem(
-            icon: Icons.question_answer_outlined,
-            text: 'Doubt Lectures',
-            onTap: () => _navigateToScreen(context, const DoubtLectureScreen()),
-          ),
-          _buildDrawerItem(
-            icon: Icons.assignment_outlined,
-            text: 'Assignments',
-            onTap: () => _navigateToScreen(context, const AssignmentsScreen()),
-          ),
-          _buildDrawerItem(
-            icon: Icons.help_outline,
-            text: 'Doubts',
-            onTap: () => _navigateToScreen(context, const DoubtsScreen()),
-          ),
-          _buildDrawerItem(
-            icon: Icons.quiz_outlined,
-            text: 'Test Portal',
-            onTap: () {
-              // TODO: Navigate to Test Portal Screen
-              Navigator.pop(context);
-            },
-          ),
-          _buildDrawerItem(
-            icon: Icons.person_pin_outlined,
-            text: 'Student ID Card',
-            onTap: () => _navigateToScreen(context, const StudentIdScreen()),
-          ),
-          _buildDrawerItem(
-            icon: Icons.emoji_events_outlined,
-            text: 'Results',
-            onTap: () => _navigateToScreen(context, const ResultsScreen()),
-          ),
-          _buildDrawerItem(
-            icon: Icons.notifications_outlined,
-            text: 'Notifications',
-            onTap: () =>
-                _navigateToScreen(context, const NotificationsScreen()),
-          ),
-          _buildDrawerItem(
-            icon: Icons.feedback_outlined,
-            text: 'Feedback',
-            onTap: () => _navigateToScreen(context, const FeedbackScreen()),
-          ),
-          const Divider(),
-          // Logout Item
-          _buildDrawerItem(
-            icon: Icons.logout,
-            text: 'Logout',
-            onTap: () async {
-              Navigator.pop(context); // Close drawer first
-              await sessionManager.logout(); // Clear the session
-              // Navigate back to the splash/login screen
-              Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(builder: (context) => const SplashScreen()),
-                (Route<dynamic> route) => false, // Remove all previous routes
-              );
-            },
-          ),
-        ],
+      child: Consumer<StudentProfileProvider>(
+        builder: (context, profileProvider, child) {
+          final profile = profileProvider.studentProfile;
+          final studentName = profile?.studentUser.fullName ?? 'Student';
+          final studentEmail = profile?.studentUser.email ?? 'email@example.com';
+          final photoUrl = profile?.studentUser.photoUrl ?? '';
+
+          return ListView(
+            padding: EdgeInsets.zero,
+            children: <Widget>[
+              UserAccountsDrawerHeader(
+                accountName: Text(
+                  studentName,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
+                accountEmail: Text(studentEmail),
+                currentAccountPicture: CircleAvatar(
+                  backgroundImage: photoUrl.isNotEmpty
+                      ? NetworkImage(photoUrl)
+                      : const AssetImage('assets/profile.png') as ImageProvider,
+                  backgroundColor: Colors.white,
+                  onBackgroundImageError: photoUrl.isNotEmpty
+                      ? (exception, stackTrace) {
+                    print('⚠️ Error loading drawer profile image: $exception');
+                  }
+                      : null,
+                ),
+                decoration: const BoxDecoration(
+                  color: Colors.blueAccent,
+                ),
+              ),
+              _buildDrawerItem(
+                icon: Icons.dashboard_outlined,
+                text: 'Dashboard',
+                onTap: () => Navigator.pop(context),
+              ),
+              _buildDrawerItem(
+                icon: Icons.school_outlined,
+                text: 'Courses',
+                onTap: () => _navigateToScreen(context, const CoursesScreen()),
+              ),
+              _buildDrawerItem(
+                icon: Icons.calendar_today_outlined,
+                text: 'Attendance',
+                onTap: () => _navigateToScreen(context, const AttendanceScreen()),
+              ),
+              _buildDrawerItem(
+                icon: Icons.schedule_outlined,
+                text: 'Timetable',
+                onTap: () => _navigateToScreen(context, const TimetableScreen()),
+              ),
+              _buildDrawerItem(
+                icon: Icons.question_answer_outlined,
+                text: 'Doubt Lectures',
+                onTap: () => _navigateToScreen(context, const DoubtLectureScreen()),
+              ),
+              _buildDrawerItem(
+                icon: Icons.assignment_outlined,
+                text: 'Assignments',
+                onTap: () => _navigateToScreen(context, const AssignmentsScreen()),
+              ),
+              _buildDrawerItem(
+                icon: Icons.help_outline,
+                text: 'Doubts',
+                onTap: () => _navigateToScreen(context, const DoubtsScreen()),
+              ),
+              _buildDrawerItem(
+                icon: Icons.quiz_outlined,
+                text: 'Test Portal',
+                onTap: () => Navigator.pop(context),
+              ),
+              _buildDrawerItem(
+                icon: Icons.person_pin_outlined,
+                text: 'Student ID Card',
+                onTap: () => _navigateToScreen(context, const StudentIdScreen()),
+              ),
+              _buildDrawerItem(
+                icon: Icons.emoji_events_outlined,
+                text: 'Results',
+                onTap: () => _navigateToScreen(context, const ResultsScreen()),
+              ),
+              _buildDrawerItem(
+                icon: Icons.notifications_outlined,
+                text: 'Notifications',
+                onTap: () => _navigateToScreen(context, const NotificationsScreen()),
+              ),
+              _buildDrawerItem(
+                icon: Icons.feedback_outlined,
+                text: 'Feedback',
+                onTap: () => _navigateToScreen(context, const FeedbackScreen()),
+              ),
+              const Divider(),
+              _buildDrawerItem(
+                icon: Icons.logout,
+                text: 'Logout',
+                onTap: () => _handleLogout(context, sessionManager, profileProvider),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 
-  // Helper method to build ListTile items for the drawer.
-  ListTile _buildDrawerItem(
-      {required IconData icon,
-      required String text,
-      required GestureTapCallback onTap}) {
+  Future<void> _handleLogout(
+      BuildContext context,
+      SessionManager sessionManager,
+      StudentProfileProvider profileProvider,
+      ) async {
+    print('🔍 [LOGOUT] Starting logout process...');
+
+    final navigator = Navigator.of(context);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Logout'),
+        content: const Text('Are you sure you want to logout?'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              print('🔍 [LOGOUT] User cancelled logout');
+              Navigator.of(dialogContext).pop(false);
+            },
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              print('🔍 [LOGOUT] User confirmed logout');
+              Navigator.of(dialogContext).pop(true);
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Logout', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    print('🔍 [LOGOUT] Confirmation result: $confirmed');
+    if (confirmed != true) {
+      print('🔍 [LOGOUT] Logout cancelled by user');
+      return;
+    }
+
+    print('🔍 [LOGOUT] Closing drawer...');
+    navigator.pop();
+
+    print('🔍 [LOGOUT] Showing loading snackbar...');
+    scaffoldMessenger.showSnackBar(
+      const SnackBar(
+        content: Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            ),
+            SizedBox(width: 16),
+            Text('Logging out...'),
+          ],
+        ),
+        duration: Duration(seconds: 2),
+        backgroundColor: Colors.blueAccent,
+      ),
+    );
+
+    try {
+      print('🚪 Starting Student logout...');
+
+      // Clear profile provider FIRST
+      profileProvider.clearProfile();
+      print('✅ Profile provider cleared');
+
+      // Delete FCM token
+      try {
+        await FirebaseNotificationService().deleteToken();
+        print('✅ FCM token deleted');
+      } catch (e) {
+        print('⚠️ Error deleting FCM token: $e');
+      }
+
+      // Clear notifications
+      try {
+        await UniversalNotificationService.instance.clearAll();
+        print('✅ Cleared local notifications');
+      } catch (e) {
+        print('⚠️ Failed to clear notifications: $e');
+      }
+
+      // Clear session manager
+      await sessionManager.logout();
+      print('✅ Session manager cleared');
+
+      // Clear SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+      print('✅ SharedPreferences cleared');
+
+      // Clear secure storage
+      const secureStorage = FlutterSecureStorage();
+      await secureStorage.deleteAll();
+      print('✅ Secure storage cleared');
+
+      print('✅ Student logout completed');
+
+      print('🔍 [LOGOUT] Navigating to HomeScreen...');
+      navigator.pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (newContext) {
+            print('🔍 [LOGOUT] Building HomeScreen...');
+            return const HomeScreen();
+          },
+        ),
+            (route) {
+          print('🔍 [LOGOUT] Removing route: ${route.settings.name}');
+          return false;
+        },
+      );
+
+      print('✅ [LOGOUT] Navigation completed successfully');
+
+      Future.delayed(const Duration(milliseconds: 500), () {
+        print('🔍 [LOGOUT] Showing success message...');
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(
+            content: Text('✅ Logged out successfully'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      });
+    } catch (e, stack) {
+      print('❌ Logout error: $e');
+      print('Stack trace: $stack');
+
+      print('🔍 [LOGOUT] Error occurred, forcing navigation...');
+      navigator.pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
+            (route) => false,
+      );
+
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Text('Logged out with errors: $e'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+
+    print('🔍 [LOGOUT] Logout function completed');
+  }
+
+  ListTile _buildDrawerItem({
+    required IconData icon,
+    required String text,
+    required GestureTapCallback onTap,
+  }) {
     return ListTile(
       leading: Icon(icon, color: Colors.grey[700]),
       title: Text(text),
@@ -146,14 +299,9 @@ class AppDrawer extends StatelessWidget {
     );
   }
 
-  // Helper method to navigate to a new screen after closing the drawer.
   void _navigateToScreen(BuildContext context, Widget screen) {
-    Navigator.pop(context); // Close the drawer
-
-    // --- KEY CHANGE 2: Use pushReplacement ---
-    // This REPLACES the current screen instead of stacking them,
-    // solving the "double-click" issue and keeping the stack clean.
-    Navigator.pushReplacement(
+    Navigator.pop(context);
+    Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => screen),
     );

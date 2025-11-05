@@ -74,7 +74,7 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
   // --- Core Logic ---
 
   Future<void> _initializeAndFetchData() async {
-    _selectedDate = DateTime.now(); // Initialize date to today
+    _selectedDate = DateTime.now(); // Initialize date
     final sessionManager = TeacherSessionManager();
     final session = await sessionManager.getSession();
     if (session == null ||
@@ -113,14 +113,16 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
           startDate: startDateStr, endDate: endDateStr);
       _currentFetchedWeekStart = weekDates.$1;
 
-      // --- **REMOVED FAULTY LOGIC** ---
-      // The logic to reset _selectedDate to the start of the week
-      // or the first lecture has been removed.
-      // _selectedDate remains what it was set to (e.g., DateTime.now() on init
-      // or the user-selected date).
-      // --- **END REMOVAL** ---
+      // --- **MODIFIED LOGIC: Set initial date ONLY on first fetch** ---
+      if (isInitialFetch) {
+        // --- **BUG FIX** ---
+        // The faulty logic that reset _selectedDate to the start of the
+        // week has been removed. We now just filter for _selectedDate,
+        // which is correctly set to DateTime.now() on initial load.
+        // --- **END BUG FIX** ---
+      }
+      // --- **END MODIFIED LOGIC** ---
 
-      // Filter for the currently selected date.
       _filterSessionsForDate(_selectedDate);
 
       if (mounted)
@@ -272,7 +274,9 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
       _showSnackbar("Auth Error", isError: true);
       return;
     }
-    final currentSessionId = _selectedSessionEntry?.sessionId; // Use getter
+    // --- FIX: Access sessionId from the details map ---
+    final currentSessionId =
+        _selectedSessionEntry?.details['sessionId'] as int?;
     if (_selectedSessionEntry == null || currentSessionId == null) {
       _showSnackbar("Please select a valid lecture session.", isError: true);
       return;
@@ -574,10 +578,11 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
               if (newId != null && newId != _selectedSessionEntry?.id) {
                 final newEntry =
                     _sessionsForSelectedDay.firstWhere((e) => e.id == newId);
+                // --- FIX: Access sessionId from the details map ---
                 final newSubjectId =
                     newEntry.details['subjectId']; // Access directly
                 print(
-                    "Session changed: ID=${newEntry.sessionId}, SubjectID=$newSubjectId");
+                    "Session changed: ID=${newEntry.details['sessionId']}, SubjectID=$newSubjectId");
                 setState(() {
                   _selectedSessionEntry = newEntry;
                   _clearSyllabusFields(clearSession: false);
@@ -595,8 +600,9 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
             },
       items: _sessionsForSelectedDay.map<DropdownMenuItem<String?>>((entry) {
         final String displayTitle = entry.title;
+        // --- FIX: Access sessionId from the details map ---
         final bool isValidLecture = entry.type == 'LECTURE' &&
-            entry.sessionId != null &&
+            entry.details['sessionId'] != null &&
             entry.details['subjectId'] is int;
         return DropdownMenuItem<String?>(
           value: entry.id,
