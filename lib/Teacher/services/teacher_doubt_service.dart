@@ -1,5 +1,7 @@
 import 'dart:convert';
+
 import 'package:http/http.dart' as http;
+
 import '../models/teacher_doubt_model.dart';
 
 class TeacherDoubtService {
@@ -59,7 +61,8 @@ class TeacherDoubtService {
       );
 
       print('📩 Response Status: ${response.statusCode}');
-      print('📨 Response Body: ${response.body.substring(0, response.body.length > 500 ? 500 : response.body.length)}...');
+      print(
+          '📨 Response Body: ${response.body.substring(0, response.body.length > 500 ? 500 : response.body.length)}...');
 
       if (response.statusCode == 200) {
         final jsonData = json.decode(response.body) as Map<String, dynamic>;
@@ -81,31 +84,43 @@ class TeacherDoubtService {
   }
 
   /// Send a text message in a doubt discussion
-  /// Send a text message in a doubt discussion
-  // Update the sendMessage method in your TeacherDoubtService class
-
   Future<bool> sendMessage(
-      String token,
-      int doubtId, {
-        String? text,
-        String? imageUrl,
-        String? voiceNoteUrl,
-      }) async {
+    String token,
+    int doubtId, {
+    String? text,
+    String? imageUrl,
+    String? voiceNoteUrl,
+  }) async {
     try {
+      print('📤 [TeacherDoubtService] Sending message to doubt ID: $doubtId');
+
+      // ========== FINAL FIX: Using 'teachers' (plural) ==========
+      // This path now matches the other working endpoints in this file
+      // (like getMyDoubts, getChat, resolveDoubt).
+      //
+      // This will call:
+      // https://vraz-backend-api.onrender.com/api/teachers/doubts/7/messages
+      //
       final response = await http.post(
-        Uri.parse('$baseUrl/api/teacher/doubts/$doubtId/messages'),
+        Uri.parse(
+            '$baseUrl/teachers/doubts/$doubtId/messages'), // <-- CORRECTED PATH
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
         },
         body: jsonEncode({
+          // Keys here (e.g., 'text') must match what the backend API expects
           if (text != null) 'text': text,
-          if (imageUrl != null) 'image_url': imageUrl,
-          if (voiceNoteUrl != null) 'voice_note_url': voiceNoteUrl,
+          if (imageUrl != null) 'imageUrl': imageUrl,
+          if (voiceNoteUrl != null) 'voiceNoteUrl': voiceNoteUrl,
         }),
       );
+      // ======================================================
 
-      if (response.statusCode == 201) {
+      print('📩 Response Status: ${response.statusCode}');
+      print('📨 Response Body: ${response.body}');
+
+      if (response.statusCode == 201 || response.statusCode == 200) {
         print('✅ Message sent successfully');
         return true;
       } else {
@@ -117,7 +132,7 @@ class TeacherDoubtService {
       rethrow;
     }
   }
-  /// Mark doubt as resolved/closed
+
   /// Mark doubt as resolved/closed
   Future<bool> resolveDoubt(String token, int doubtId) async {
     try {
