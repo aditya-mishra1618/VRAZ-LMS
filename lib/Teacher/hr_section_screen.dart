@@ -130,25 +130,24 @@ class _HRSectionScreenState extends State<HRSectionScreen> {
     for (var leave in leaves) {
       // Only count APPROVED leaves towards balance
       if (leave.status == 'APPROVED') {
-        // Calculate duration inclusively
-        int duration = leave.endDate.difference(leave.startDate).inDays + 1;
-        if (duration < 1) duration = 1; // Ensure minimum 1 day
+        // --- THIS IS THE FIX ---
+        // We now count 1 for each application, instead of counting the days.
+        // int duration = leave.endDate.difference(leave.startDate).inDays + 1;
+        // if (duration < 1) duration = 1; // Ensure minimum 1 day
 
         // Categorize based on deductedAs
         switch (leave.deductedAs.toUpperCase()) {
           // Use uppercase for safety
           case 'SICK':
-            sickTaken += duration;
+            sickTaken += 1; // Was: sickTaken += duration;
             break;
           case 'CASUAL':
-            casualTaken += duration;
+            casualTaken += 1; // Was: casualTaken += duration;
             break;
           case 'UNPAID':
-            unpaidTaken += duration;
+            unpaidTaken += 1; // Was: unpaidTaken += duration;
             break;
           default:
-            // If deductedAs is null or empty for an approved leave, maybe count as unpaid?
-            // Or log it as unexpected. For now, we only count explicitly marked UNPAID.
             print(
                 "Approved leave ID ${leave.id} has unexpected/missing deductedAs: ${leave.deductedAs}");
             break;
@@ -821,7 +820,7 @@ class _ApplyLeaveModalState extends State<ApplyLeaveModal> {
 
   Widget _buildReasonField() {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('Reason', style: TextStyle(fontWeight: FontWeight.w500)),
+      const Text('Reason', style: const TextStyle(fontWeight: FontWeight.w500)),
       const SizedBox(height: 8),
       TextField(
           controller: _reasonController,

@@ -24,10 +24,7 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
   final String teacherName = 'Prof. RamSwaroop';
   final String teacherSubject = 'Mathematics';
 
-  final Map<String, bool> _notificationToggles = {
-    'Doubt Lecture': true,
-    'Calculus': false,
-  };
+  // Removed the _notificationToggles map as it's no longer needed
 
   late final List<Map<String, dynamic>> _gridItems;
 
@@ -147,11 +144,12 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
           'Teacher Dashboard',
           style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
         ),
+        // --- REMOVED SETTINGS ICON ---
         actions: [
-          IconButton(
-            icon: const Icon(Icons.settings, color: Colors.black54),
-            onPressed: () {},
-          ),
+          // IconButton(
+          //   icon: const Icon(Icons.settings, color: Colors.black54),
+          //   onPressed: () {},
+          // ),
         ],
         backgroundColor: const Color(0xFFF0F4F8),
         elevation: 0,
@@ -166,8 +164,9 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
             _buildTeacherInfoCard(),
             const SizedBox(height: 24),
             _buildGridView(),
-            const SizedBox(height: 24),
-            _buildLectureReminders(),
+            // --- REMOVED LECTURE REMINDERS ---
+            // const SizedBox(height: 24),
+            // _buildLectureReminders(),
           ],
         ),
       ),
@@ -300,89 +299,5 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
     );
   }
 
-  Widget _buildLectureReminders() {
-    final List<Map<String, String>> lectures = [
-      {'subject': 'Doubt Lecture', 'time': '10:00 AM - 11:00 AM'},
-      {'subject': 'Calculus', 'time': '1:00 PM - 2:30 PM'},
-    ];
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: const [
-              Icon(Icons.access_time, color: Colors.blueAccent),
-              SizedBox(width: 8),
-              Text(
-                'Lecture Reminders',
-                style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Upcoming lectures with notification toggle',
-            style: TextStyle(color: Colors.grey[600]),
-          ),
-          const Divider(height: 30),
-          ...lectures
-              .map((lecture) => _buildLectureItem(
-                    lecture['subject']!,
-                    lecture['time']!,
-                  ))
-              .toList(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLectureItem(String subject, String time) {
-    bool isToggled = _notificationToggles[subject] ?? false;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                subject,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              Text(
-                time,
-                style: TextStyle(color: Colors.grey[600]),
-              ),
-            ],
-          ),
-          Switch(
-            value: isToggled,
-            onChanged: (bool value) {
-              setState(() {
-                _notificationToggles[subject] = value;
-              });
-            },
-            activeColor: Colors.blueAccent,
-          ),
-        ],
-      ),
-    );
-  }
+// --- REMOVED _buildLectureReminders() and _buildLectureItem() ---
 }

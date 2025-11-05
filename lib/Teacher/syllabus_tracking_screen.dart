@@ -74,7 +74,7 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
   // --- Core Logic ---
 
   Future<void> _initializeAndFetchData() async {
-    _selectedDate = DateTime.now(); // Initialize date
+    _selectedDate = DateTime.now(); // Initialize date to today
     final sessionManager = TeacherSessionManager();
     final session = await sessionManager.getSession();
     if (session == null ||
@@ -85,13 +85,17 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
     }
     _authToken = session['token'] as String;
     _timetableService = TeacherTimetableService(token: _authToken!);
-    await _fetchScheduleForWeek(_selectedDate);
+    // Pass isInitialFetch: true
+    await _fetchScheduleForWeek(_selectedDate, isInitialFetch: true);
   }
 
-  Future<void> _fetchScheduleForWeek(DateTime dateInWeek) async {
+  Future<void> _fetchScheduleForWeek(DateTime dateInWeek,
+      {bool isInitialFetch = false}) async {
     if (_authToken == null) return;
     final weekDates = _getWeekStartAndEnd(dateInWeek);
-    if (weekDates.$1 == _currentFetchedWeekStart) {
+
+    // Avoid refetching if we already have data for this week
+    if (weekDates.$1 == _currentFetchedWeekStart && !isInitialFetch) {
       _filterSessionsForDate(_selectedDate);
       return;
     }
@@ -109,24 +113,14 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
           startDate: startDateStr, endDate: endDateStr);
       _currentFetchedWeekStart = weekDates.$1;
 
-      DateTime initialDisplayDate = weekDates.$1;
-      if (_allFetchedSessions.isNotEmpty) {
-        _allFetchedSessions.sort((a, b) => a.startTime.compareTo(b.startTime));
-        final firstLecture = _allFetchedSessions.firstWhere(
-            (s) =>
-                s.type == 'LECTURE' &&
-                s.startTime
-                    .isAfter(DateTime.now().subtract(const Duration(days: 7))),
-            orElse: () => _allFetchedSessions.firstWhere(
-                (s) => s.type == 'LECTURE',
-                orElse: () => _allFetchedSessions.first));
-        initialDisplayDate = DateTime(firstLecture.startTime.year,
-            firstLecture.startTime.month, firstLecture.startTime.day);
-      }
-      if (_isLoadingSessions || _currentFetchedWeekStart == weekDates.$1) {
-        _selectedDate = initialDisplayDate;
-      }
+      // --- **REMOVED FAULTY LOGIC** ---
+      // The logic to reset _selectedDate to the start of the week
+      // or the first lecture has been removed.
+      // _selectedDate remains what it was set to (e.g., DateTime.now() on init
+      // or the user-selected date).
+      // --- **END REMOVAL** ---
 
+      // Filter for the currently selected date.
       _filterSessionsForDate(_selectedDate);
 
       if (mounted)
@@ -225,8 +219,8 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
     }
   }
 
-  void _changeDate(int days) async {
-    final newDate = _selectedDate.add(Duration(days: days));
+  // --- REFACTORED DATE CHANGE LOGIC ---
+  Future<void> _onDateChanged(DateTime newDate) async {
     setState(() {
       _selectedDate = newDate;
       _clearSyllabusFields();
@@ -239,7 +233,7 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
     final newWeekStartDate = _getWeekStartAndEnd(newDate).$1;
     if (newWeekStartDate != _currentFetchedWeekStart ||
         _currentFetchedWeekStart == null) {
-      await _fetchScheduleForWeek(newDate);
+      await _fetchScheduleForWeek(newDate, isInitialFetch: false);
     } else {
       _filterSessionsForDate(newDate);
       final currentSubjectId = _selectedSessionEntry?.details['subjectId'];
@@ -250,6 +244,28 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
       }
     }
   }
+
+  // Date Navigation (Arrows) - now uses the refactored logic
+  void _changeDate(int days) async {
+    final newDate = _selectedDate.add(Duration(days: days));
+    await _onDateChanged(newDate);
+  }
+
+  // NEW: Date Picker (Calendar) - also uses the refactored logic
+  Future<void> _showDatePicker() async {
+    final DateTime? newDate = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(DateTime.now().year - 1), // One year ago
+      lastDate: DateTime(DateTime.now().year + 1), // One year from now
+    );
+
+    if (newDate != null && newDate != _selectedDate) {
+      // Call the refactored logic
+      await _onDateChanged(newDate);
+    }
+  }
+  // --- END REFACTOR ---
 
   Future<void> _saveSyllabus() async {
     if (_authToken == null) {
@@ -476,8 +492,18 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
             onPressed: _isLoadingSessions || _isSubmitting
                 ? null
                 : () => _changeDate(-1)),
-        Text(DateFormat('MMMM d, yyyy').format(_selectedDate),
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        // --- MODIFICATION: Wrapped Center/Text with InkWell ---
+        Expanded(
+          child: InkWell(
+            onTap: _isLoadingSessions || _isSubmitting ? null : _showDatePicker,
+            child: Center(
+              child: Text(DateFormat('MMMM d, yyyy').format(_selectedDate),
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+          ),
+        ),
+        // --- END MODIFICATION ---
         IconButton(
             icon: const Icon(Icons.chevron_right),
             onPressed: _isLoadingSessions ||

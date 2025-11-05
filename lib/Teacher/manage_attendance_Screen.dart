@@ -123,29 +123,37 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
       );
       _currentFetchedWeekStart = weekDates.$1; // Update tracked week
 
-      // --- **NEW LOGIC: Set initial date based on fetched data** ---
-      DateTime initialDisplayDate =
-          weekDates.$1; // Default to Monday of the fetched week
-      if (_allFetchedSessions.isNotEmpty) {
-        // Find the earliest day in the fetched sessions
-        _allFetchedSessions.sort((a, b) => a.startTime.compareTo(b.startTime));
-        // Use the date part of the earliest session
-        initialDisplayDate = DateTime(
-            _allFetchedSessions.first.startTime.year,
-            _allFetchedSessions.first.startTime.month,
-            _allFetchedSessions.first.startTime.day);
-        print(
-            'Setting initial display date to first session date: ${DateFormat('yyyy-MM-dd').format(initialDisplayDate)}');
-      } else {
-        print(
-            'No sessions found in fetched week. Defaulting display date to Monday: ${DateFormat('yyyy-MM-dd').format(initialDisplayDate)}');
+      // --- **MODIFIED LOGIC: Set initial date ONLY on first fetch** ---
+      if (fetchFirstAttendance) {
+        DateTime initialDisplayDate =
+            weekDates.$1; // Default to Monday of the fetched week
+        if (_allFetchedSessions.isNotEmpty) {
+          // Find the earliest day in the fetched sessions
+          _allFetchedSessions
+              .sort((a, b) => a.startTime.compareTo(b.startTime));
+          // Use the date part of the earliest session
+          initialDisplayDate = DateTime(
+              _allFetchedSessions.first.startTime.year,
+              _allFetchedSessions.first.startTime.month,
+              _allFetchedSessions.first.startTime.day);
+          print(
+              'Setting initial display date to first session date: ${DateFormat('yyyy-MM-dd').format(initialDisplayDate)}');
+        } else {
+          print(
+              'No sessions found in fetched week. Defaulting display date to Monday: ${DateFormat('yyyy-MM-dd').format(initialDisplayDate)}');
+        }
+        // Set the _selectedDate state variable *before* filtering
+        // Wrap in setState to fix date skipping bug
+        if (mounted) {
+          setState(() {
+            _selectedDate = initialDisplayDate;
+          });
+        }
       }
-      // Set the _selectedDate state variable *before* filtering
-      _selectedDate = initialDisplayDate;
-      // --- **END NEW LOGIC** ---
+      // --- **END MODIFIED LOGIC** ---
 
       _filterSessionsForDate(
-          _selectedDate); // Filter for the determined initial day
+          _selectedDate); // Filter for the (potentially new) _selectedDate
 
       // Automatically fetch attendance for the first LECTURE session of the day
       if (fetchFirstAttendance &&
@@ -281,12 +289,9 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
     }
   }
 
-  // Date Navigation
-  void _changeDate(int days) async {
-    final newDate = _selectedDate.add(Duration(days: days));
-    // Store previous selection before clearing
-    TeacherTimetableEntry? previousSelectedEntry = _selectedSessionEntry;
-
+  // --- REFACTORED DATE CHANGE LOGIC ---
+  // This new function contains the core logic for changing the date.
+  Future<void> _onDateChanged(DateTime newDate) async {
     setState(() {
       _selectedDate = newDate;
       _students = [];
@@ -302,7 +307,8 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
     if (newWeekStartDate != _currentFetchedWeekStart ||
         _currentFetchedWeekStart == null) {
       print('Week changed or initial load. Fetching schedule.');
-      await _fetchScheduleForWeek(newDate, fetchFirstAttendance: true);
+      // Note: fetchFirstAttendance is false, so it won't reset the date
+      await _fetchScheduleForWeek(newDate, fetchFirstAttendance: false);
     } else {
       print('Same week. Filtering sessions.');
       _filterSessionsForDate(newDate);
@@ -318,6 +324,28 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
       }
     }
   }
+
+  // Date Navigation (Arrows) - now uses the refactored logic
+  void _changeDate(int days) async {
+    final newDate = _selectedDate.add(Duration(days: days));
+    await _onDateChanged(newDate);
+  }
+
+  // NEW: Date Picker (Calendar) - also uses the refactored logic
+  Future<void> _showDatePicker() async {
+    final DateTime? newDate = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(DateTime.now().year - 1), // One year ago
+      lastDate: DateTime(DateTime.now().year + 1), // One year from now
+    );
+
+    if (newDate != null && newDate != _selectedDate) {
+      // Call the refactored logic
+      await _onDateChanged(newDate);
+    }
+  }
+  // --- END REFACTOR ---
 
   // --- Attendance Logic (remains the same) ---
   int get _totalStudents => _students.length;
@@ -722,11 +750,17 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
                 : () => _changeDate(-1),
           ),
           Expanded(
-            child: Center(
-              child: Text(displayDate,
-                  style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.bold)),
+            // --- MODIFICATION: Wrapped Center/Text with InkWell ---
+            child: InkWell(
+              onTap:
+                  _isLoadingSessions || _isSubmitting ? null : _showDatePicker,
+              child: Center(
+                child: Text(displayDate,
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold)),
+              ),
             ),
+            // --- END MODIFICATION ---
           ),
           IconButton(
             icon: const Icon(Icons.arrow_forward_ios, size: 20),
