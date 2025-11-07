@@ -100,7 +100,7 @@ class TeacherDoubtService {
       print('   └─ Token length: ${token.length} chars');
 
       // Construct URL
-      final url = Uri.parse('$baseUrl/teacher/doubts/sendMessage/$doubtId');
+      final url = Uri.parse('$baseUrl/teachers/doubts/sendMessage/$doubtId');
       print('\n🌐 [URL INFO]');
       print('   ├─ Base URL: $baseUrl');
       print('   ├─ Full URL: $url');
@@ -206,7 +206,7 @@ class TeacherDoubtService {
       } else if (response.statusCode == 401) {
         throw Exception('Unauthorized. Please login again.');
       } else {
-      git  print('❌ Error: ${response.body}');
+     print('❌ Error: ${response.body}');
         throw Exception('Failed to resolve doubt: ${response.statusCode}');
       }
     } catch (e) {
