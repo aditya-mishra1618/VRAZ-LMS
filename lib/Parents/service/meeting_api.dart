@@ -1,9 +1,61 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:vraz_application/Parents/models/teacher_model.dart';
 import '../../api_config.dart';
 import '../models/meeting_model.dart';
 
 class MeetingApi {
+
+  static Future<List<Teacher>> fetchTeachers({
+    required String authToken,
+    required int childId,
+  }) async {
+    try {
+      print('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      print('[MeetingApi] 📚 Fetching teachers for child ID: $childId');
+
+      final url = Uri.parse('${ApiConfig.baseUrl}/api/parentMobile/my/children/faculty/$childId');
+
+      print('[MeetingApi] 🌐 Full URL: $url');
+      print('[MeetingApi] 🔑 Token length: ${authToken.length} chars');
+      print('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+      final response = await http.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $authToken',
+        },
+      );
+
+      print('[MeetingApi] 📥 Response Status: ${response.statusCode}');
+
+      if (response.statusCode != 200) {
+        print('[MeetingApi] ❌ Response Body: ${response.body}');
+      }
+
+      if (response.statusCode == 200) {
+        final List<dynamic> jsonList = json.decode(response.body);
+        final teachers = jsonList
+            .map((json) => Teacher.fromJson(json as Map<String, dynamic>))
+            .toList();
+
+        print('[MeetingApi] ✅ Loaded ${teachers.length} teachers');
+        print('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+        return teachers;
+      } else if (response.statusCode == 401) {
+        throw Exception('Session expired. Please login again.');
+      } else {
+        throw Exception('Failed to load teachers: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('[MeetingApi] ❌ Error fetching teachers: $e');
+      print('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+      rethrow;
+    }
+  }
+
   /// Fetch all meetings for parent
   static Future<List<Meeting>> fetchMeetings({required String authToken}) async {
     final url = Uri.parse('${ApiConfig.baseUrl}/api/parentMobile/my/ptm/get');

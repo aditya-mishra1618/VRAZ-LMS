@@ -180,10 +180,53 @@ class _TeacherDiscussDoubtScreenState extends State<TeacherDiscussDoubtScreen> {
   // ========== SEND MESSAGE ==========
 
   Future<void> _handleSubmitted(String text) async {
-    if (text.trim().isEmpty || _isSending || _token == null) return;
+    print('\n╔════════════════════════════════════════════════════════════╗');
+    print('║           HANDLE SUBMIT DEBUG INFO                         ║');
+    print('╚════════════════════════════════════════════════════════════╝');
+    print('✍️ [HANDLE_SUBMIT] User pressed send');
+    print('   ├─ Raw text: "$text"');
+    print('   ├─ Text length: ${text.length}');
+    print('   ├─ Trimmed text: "${text.trim()}"');
+    print('   ├─ Trimmed length: ${text.trim().length}');
+    print('   ├─ _isSending: $_isSending');
+    print('   ├─ _token exists: ${_token != null}');
+    print('   ├─ Doubt ID: ${widget.doubt.id}');
+    print('   └─ Is resolved: ${widget.doubt.isResolved}');
+
+    if (text.trim().isEmpty) {
+      print('\n⚠️ [VALIDATION] Text is empty after trim - ABORTING');
+      print('╚════════════════════════════════════════════════════════════╝\n');
+      return;
+    }
+
+    if (_isSending) {
+      print('\n⚠️ [VALIDATION] Already sending message - ABORTING');
+      print('╚════════════════════════════════════════════════════════════╝\n');
+      return;
+    }
+
+    if (_token == null) {
+      print('\n❌ [VALIDATION] Token is null - ABORTING');
+      print('╚════════════════════════════════════════════════════════════╝\n');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Session expired. Please login again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
 
     final messageText = text.trim();
+
+    print('\n✅ [VALIDATION] All checks passed!');
+    print('   └─ Clearing text field and proceeding to send...');
+
     _textController.clear();
+
+    print('╚════════════════════════════════════════════════════════════╝\n');
 
     await _sendMessage(text: messageText);
   }

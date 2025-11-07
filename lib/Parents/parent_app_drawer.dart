@@ -16,29 +16,62 @@ import 'parents_dashboard.dart';
 import 'payments_screen.dart';
 import 'results_screen.dart';
 import 'timetable_screen.dart';
+import 'support_ticket_screen.dart';
 
 class ParentAppDrawer extends StatelessWidget {
   const ParentAppDrawer({super.key});
 
   @override
+  @override
   Widget build(BuildContext context) {
+    // ✅ Get parent session manager
+    final sessionManager = Provider.of<ParentSessionManager>(context);
+    final parent = sessionManager.currentParent;
+
+    // Extract parent details with fallbacks
+    final String parentName = parent?.fullName ?? 'Parent';
+    final String parentEmail = parent?.email.isNotEmpty == true ? parent!.email : 'No email';
+    final String? profilePicture = parent?.profilePicture;
+
+    print('🔍 [DRAWER] Building drawer for: $parentName');
+    print('   ├─ Email: $parentEmail');
+    print('   ├─ Phone: ${parent?.phoneNumber ?? "N/A"}');
+    print('   └─ Profile Picture: ${profilePicture ?? "No photo"}');
+
+    // ✅ Determine if we should show image or initials
+    final bool hasProfilePicture = profilePicture != null && profilePicture.isNotEmpty;
+
     return Drawer(
       child: ListView(
         padding: EdgeInsets.zero,
         children: <Widget>[
-          const UserAccountsDrawerHeader(
+          // ✅ DYNAMIC USER HEADER
+          UserAccountsDrawerHeader(
             accountName: Text(
-              'Manoj Sharma',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+              parentName,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
             ),
-            accountEmail: Text('manoj.sharma@example.com'),
+            accountEmail: Text(parentEmail),
             currentAccountPicture: CircleAvatar(
-              backgroundImage: AssetImage('assets/profile.png'),
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.blueAccent,
+              backgroundImage: hasProfilePicture ? NetworkImage(profilePicture!) : null,
+              child: !hasProfilePicture
+                  ? Text(
+                _getInitials(parentName),
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blueAccent,
+                ),
+              )
+                  : null,
             ),
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               color: Colors.blueAccent,
             ),
           ),
+
           _buildDrawerItem(
             context: context,
             icon: Icons.dashboard_outlined,
@@ -47,18 +80,9 @@ class ParentAppDrawer extends StatelessWidget {
           ),
           _buildDrawerItem(
             context: context,
-            icon: Icons.report_problem_outlined,
-            text: 'Grievance',
-            screen: const GrievanceScreen(),
-          ),
-          _buildDrawerItem(
-            context: context,
-            icon: Icons.support_agent_outlined,
-            text: 'Support Chat',
-            screen: const GrievanceChatScreen(
-              grievanceTitle: 'Support Chat',
-              navigationSource: '',
-            ),
+            icon: Icons.confirmation_number_outlined,
+            text: 'Support Tickets',
+            screen: const SupportTicketScreen(),
           ),
           _buildDrawerItem(
             context: context,
@@ -105,6 +129,18 @@ class ParentAppDrawer extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  // ✅ Get initials from name for avatar
+  String _getInitials(String name) {
+    if (name.isEmpty) return 'P';
+
+    final parts = name.trim().split(' ');
+    if (parts.length == 1) {
+      return parts[0][0].toUpperCase();
+    } else {
+      return '${parts[0][0]}${parts[parts.length - 1][0]}'.toUpperCase();
+    }
   }
 
   // ✅ BULLETPROOF LOGOUT FUNCTION

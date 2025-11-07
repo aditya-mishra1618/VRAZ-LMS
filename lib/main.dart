@@ -38,7 +38,10 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (context) => SessionManager()),
         ChangeNotifierProvider(create: (context) => StudentProfileProvider()),
         Provider(create: (context) => TeacherSessionManager()),
-        ChangeNotifierProvider(create: (_) => ParentSessionManager()),
+        // ✅ FIXED: Load session on app startup
+        ChangeNotifierProvider(
+          create: (_) => ParentSessionManager()..loadSession(),
+        ),
       ],
       child: MaterialApp(
         title: 'VRaZ Application',
