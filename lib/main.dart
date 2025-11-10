@@ -1,20 +1,29 @@
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // Import this
+import 'package:provider/provider.dart';
 import 'package:vraz_application/parent_session_manager.dart';
 import 'package:vraz_application/student_profile_provider.dart';
 import 'package:vraz_application/teacher_session_manager.dart';
 import 'package:vraz_application/universal_notification_service.dart';
 
 import 'Student/service/firebase_notification_service.dart';
-import 'firebase_options.dart';
-import 'student_session_manager.dart';
-import 'splash_screen.dart';
 import 'api_config.dart';
+import 'firebase_options.dart';
+import 'splash_screen.dart';
+import 'student_session_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // --- ADDED: App-wide Rotation Lock ---
+  // This locks the entire app to portrait mode.
+  SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+  // --- END ADDED ---
 
   try {
     await Firebase.initializeApp(
@@ -37,8 +46,11 @@ class MyApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (context) => SessionManager()),
         ChangeNotifierProvider(create: (context) => StudentProfileProvider()),
-        Provider(create: (context) => TeacherSessionManager()),
-        ChangeNotifierProvider(create: (_) => ParentSessionManager()),
+        ChangeNotifierProvider(create: (context) => TeacherSessionManager()),
+        // ✅ FIXED: Load session on app startup
+        ChangeNotifierProvider(
+          create: (_) => ParentSessionManager()..loadSession(),
+        ),
       ],
       child: MaterialApp(
         title: 'VRaZ Application',

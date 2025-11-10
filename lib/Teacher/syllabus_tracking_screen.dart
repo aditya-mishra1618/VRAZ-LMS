@@ -100,11 +100,16 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
       return;
     }
 
-    setState(() {
-      _isLoadingSessions = true;
-      _errorMessage = null;
-      _clearSyllabusFields();
-    });
+    // --- FIX: Only set loading true on the *initial* fetch ---
+    // Subsequent fetches are handled by _onDateChanged
+    if (isInitialFetch) {
+      setState(() {
+        _isLoadingSessions = true;
+        _errorMessage = null;
+        _clearSyllabusFields();
+      });
+    }
+    // --- END FIX ---
 
     try {
       final startDateStr = DateFormat('yyyy-MM-dd').format(weekDates.$1);
@@ -113,17 +118,15 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
           startDate: startDateStr, endDate: endDateStr);
       _currentFetchedWeekStart = weekDates.$1;
 
-      // --- **MODIFIED LOGIC: Set initial date ONLY on first fetch** ---
-      if (isInitialFetch) {
-        // --- **BUG FIX** ---
-        // The faulty logic that reset _selectedDate to the start of the
-        // week has been removed. We now just filter for _selectedDate,
-        // which is correctly set to DateTime.now() on initial load.
-        // --- **END BUG FIX** ---
-      }
-      // --- **END MODIFIED LOGIC** ---
-
       _filterSessionsForDate(_selectedDate);
+
+      // Auto-select first session ONLY on initial load
+      if (isInitialFetch && _selectedSessionEntry != null) {
+        final currentSubjectId = _selectedSessionEntry?.details['subjectId'];
+        if (currentSubjectId is int) {
+          _fetchSubjectNameAndTopics(currentSubjectId);
+        }
+      }
 
       if (mounted)
         setState(() {
@@ -223,25 +226,39 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
 
   // --- REFACTORED DATE CHANGE LOGIC ---
   Future<void> _onDateChanged(DateTime newDate) async {
+    // 1. Set the new date and clear old data immediately
     setState(() {
       _selectedDate = newDate;
       _clearSyllabusFields();
       _errorMessage = null;
       _sessionsForSelectedDay = [];
-      _isLoadingSessions = true;
+      // --- FIX: DO NOT set _isLoadingSessions = true here ---
       _isLoadingTopics = false;
     });
 
     final newWeekStartDate = _getWeekStartAndEnd(newDate).$1;
+
+    // 2. Check if we need to fetch new data
     if (newWeekStartDate != _currentFetchedWeekStart ||
         _currentFetchedWeekStart == null) {
+      // --- FIX: Set loading to true ONLY when fetching a new week ---
+      setState(() {
+        _isLoadingSessions = true;
+      });
+      // This is the "slow" path (network call)
       await _fetchScheduleForWeek(newDate, isInitialFetch: false);
     } else {
-      _filterSessionsForDate(newDate);
+      // --- FIX: This is the "fast" path (same week) ---
+      // Instantly filter data. No full-screen loader.
+      _filterSessionsForDate(newDate); // This is a local (fast) operation
+
+      // We still need to fetch topics for the (potentially) new session
       final currentSubjectId = _selectedSessionEntry?.details['subjectId'];
       if (_selectedSessionEntry != null && currentSubjectId is int) {
+        // This will set its own _isLoadingTopics = true
         await _fetchSubjectNameAndTopics(currentSubjectId);
       } else {
+        // Ensure loading is false if no data is being fetched
         if (mounted) setState(() => _isLoadingSessions = false);
       }
     }
@@ -507,17 +524,16 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
             ),
           ),
         ),
-        // --- END MODIFICATION ---
+        // --- THIS IS THE FIX ---
         IconButton(
             icon: const Icon(Icons.chevron_right),
-            onPressed: _isLoadingSessions ||
-                    _isSubmitting ||
-                    DateUtils.isSameDay(_selectedDate, DateTime.now())
+            // The check for DateUtils.isSameDay has been removed
+            onPressed: _isLoadingSessions || _isSubmitting
                 ? null
                 : () => _changeDate(1),
-            color: DateUtils.isSameDay(_selectedDate, DateTime.now())
-                ? Colors.grey
-                : null),
+            color: null // The color check is also removed
+            ),
+        // --- END FIX ---
       ]),
     );
   }

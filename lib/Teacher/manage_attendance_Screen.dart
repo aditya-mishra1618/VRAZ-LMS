@@ -273,35 +273,41 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
   // --- REFACTORED DATE CHANGE LOGIC ---
   // This new function contains the core logic for changing the date.
   Future<void> _onDateChanged(DateTime newDate) async {
+    // 1. Set the new date and clear old data immediately
     setState(() {
       _selectedDate = newDate;
       _students = [];
-      // Set loading true only if we expect to fetch attendance
-      _isLoadingAttendance = true; // Assume true initially
       _errorMessage = null;
       _selectedSessionId = null;
       _selectedSessionEntry = null;
+      // --- FIX: DO NOT set _isLoadingSessions = true here ---
+      _isLoadingAttendance = true; // Assume true initially
     });
 
     final newWeekStartDate = _getWeekStartAndEnd(newDate).$1;
 
+    // 2. Check if we need to fetch new data
     if (newWeekStartDate != _currentFetchedWeekStart ||
         _currentFetchedWeekStart == null) {
-      print('Week changed or initial load. Fetching schedule.');
-      // Note: fetchFirstAttendance is false, so it won't reset the date
+      // --- FIX: Set loading to true ONLY when fetching a new week ---
+      setState(() {
+        _isLoadingSessions = true;
+      });
+      // This is the "slow" path (network call)
       await _fetchScheduleForWeek(newDate, fetchFirstAttendance: false);
     } else {
-      print('Same week. Filtering sessions.');
-      _filterSessionsForDate(newDate);
+      // --- FIX: This is the "fast" path (same week) ---
+      // Instantly filter data. No full-screen loader.
+      _filterSessionsForDate(newDate); // This is a local (fast) operation
+
+      // We still need to fetch attendance for the (potentially) new session
       if (_selectedSessionEntry?.type == 'LECTURE' &&
           _selectedSessionId != null) {
-        // Only fetch attendance if the newly filtered selection is a lecture
+        // This will set its own _isLoadingAttendance = true
         await _fetchAttendanceData(_selectedSessionId!);
       } else {
-        if (mounted) {
-          // If no sessions or not a lecture, explicitly stop loading attendance
-          setState(() => _isLoadingAttendance = false);
-        }
+        // If no sessions or not a lecture, explicitly stop loading attendance
+        if (mounted) setState(() => _isLoadingAttendance = false);
       }
     }
   }
@@ -437,6 +443,17 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
         backgroundColor: const Color(0xFFF0F4F8),
         elevation: 0,
         centerTitle: true,
+        // --- ADDED REFRESH BUTTON ---
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.black54),
+            onPressed: (_isLoadingSessions || _isSubmitting)
+                ? null
+                : _initializeAndFetchData,
+            tooltip: 'Refresh Data',
+          ),
+        ],
+        // --- END ADDED ---
       ),
       body: Stack(
         children: [
@@ -607,9 +624,10 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
 
   // Main content area below dropdown and date navigator
   Widget _buildBodyContent() {
-    if (_isLoadingSessions) {
-      // If still loading schedule, show nothing here
-      return Container();
+    if (_isLoadingSessions && _students.isEmpty) {
+      // Show nothing if we are loading sessions for the first time
+      // or for a new week
+      return const Center(child: CircularProgressIndicator());
     }
     // Show error if schedule loading failed and list is still empty
     if (_errorMessage != null &&

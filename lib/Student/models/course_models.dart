@@ -56,11 +56,11 @@ class TopicModel {
   factory TopicModel.fromJson(Map<String, dynamic> json) {
     var lmsContentsList = json['lmsContents'] as List;
     List<LMSContentModel> lmsContents =
-    lmsContentsList.map((i) => LMSContentModel.fromJson(i)).toList();
+        lmsContentsList.map((i) => LMSContentModel.fromJson(i)).toList();
 
     var subTopicsList = json['subTopics'] as List;
     List<TopicModel> subTopics =
-    subTopicsList.map((i) => TopicModel.fromJson(i)).toList();
+        subTopicsList.map((i) => TopicModel.fromJson(i)).toList();
 
     return TopicModel(
       id: json['id'],
@@ -93,6 +93,27 @@ class TopicModel {
     }
     return allVideos;
   }
+
+  // --- THIS IS THE FIX ---
+  /// Recursively finds the topic that directly contains the given content.
+  TopicModel? findParentTopicOf(LMSContentModel content) {
+    // Check if this topic's lmsContents contains the content.
+    if (lmsContents.any((item) => item.id == content.id)) {
+      return this;
+    }
+
+    // If not found, search recursively in sub-topics.
+    for (var subTopic in subTopics) {
+      final found = subTopic.findParentTopicOf(content);
+      if (found != null) {
+        return found;
+      }
+    }
+
+    // Not found in this branch.
+    return null;
+  }
+  // --- END FIX ---
 
   // Helper to check if this is a main topic (no parent)
   bool isMainTopic() => parentId == null;
@@ -129,7 +150,7 @@ class SubjectModel {
   factory SubjectModel.fromJson(Map<String, dynamic> json) {
     var topicsList = json['topics'] as List;
     List<TopicModel> topics =
-    topicsList.map((i) => TopicModel.fromJson(i)).toList();
+        topicsList.map((i) => TopicModel.fromJson(i)).toList();
 
     return SubjectModel(
       id: json['id'],

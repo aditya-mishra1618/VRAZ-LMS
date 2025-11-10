@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vraz_application/Parents/models/teacher_model.dart';
 import 'package:vraz_application/Parents/service/meeting_api.dart';
 
 import 'models/meeting_model.dart';
@@ -526,41 +527,63 @@ class RequestMeetingModal extends StatefulWidget {
   State<RequestMeetingModal> createState() => _RequestMeetingModalState();
 }
 
-
 class _RequestMeetingModalState extends State<RequestMeetingModal> {
   String? _selectedTeacherName;
-  String? _selectedTeacherId; // ✅ Store teacher ID
+  String? _selectedTeacherId;
   DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
-  DateTime? _selectedDate2; // ✅ Second date
-  TimeOfDay? _selectedTime2; // ✅ Second time
+  DateTime? _selectedDate2;
+  TimeOfDay? _selectedTime2;
 
   final TextEditingController _dateController = TextEditingController();
   final TextEditingController _timeController = TextEditingController();
   final TextEditingController _dateController2 = TextEditingController();
   final TextEditingController _timeController2 = TextEditingController();
-  final TextEditingController _reasonController = TextEditingController(); // ✅ Reason
+  final TextEditingController _reasonController = TextEditingController();
 
   bool _isSubmitting = false;
+  bool _isLoadingTeachers = true;
+  List<Teacher> _teachers = []; // ✅ Dynamic teacher list
+  String? _teachersError;
 
-  // ✅ TODO: Replace with API to fetch teachers
-  final List<Map<String, String>> _teachers = [
-    {
-      'name': 'Prof. Zeeshan Sir',
-      'subject': 'Physics',
-      'id': 'b1493af7-f743-4def-aecc-2951f16fe25c'
-    },
-    {
-      'name': 'Prof. RamSwaroop Sir',
-      'subject': 'Mathematics',
-      'id': 'fedc3011-1d8d-41df-93d9-3471ee03ee66'
-    },
-    {
-      'name': 'Prof. Ankit Sir',
-      'subject': 'Chemistry',
-      'id': 'teacher-id-3'
-    },
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _loadTeachers();
+  }
+
+  // ✅ Load teachers from API
+  Future<void> _loadTeachers() async {
+    setState(() {
+      _isLoadingTeachers = true;
+      _teachersError = null;
+    });
+
+    try {
+      print('[RequestMeeting] 📚 Loading teachers for child ID: ${widget.admissionId}');
+
+      final teachers = await MeetingApi.fetchTeachers(
+        authToken: widget.authToken,
+        childId: widget.admissionId,
+      );
+
+      if (mounted) {
+        setState(() {
+          _teachers = teachers;
+          _isLoadingTeachers = false;
+        });
+        print('[RequestMeeting] ✅ Loaded ${teachers.length} teachers');
+      }
+    } catch (e) {
+      print('[RequestMeeting] ❌ Error loading teachers: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingTeachers = false;
+          _teachersError = e.toString();
+        });
+      }
+    }
+  }
 
   Future<void> _selectDate(BuildContext context, bool isFirst) async {
     final DateTime? picked = await showDatePicker(
@@ -647,7 +670,6 @@ class _RequestMeetingModalState extends State<RequestMeetingModal> {
 
       print('[RequestMeeting] Creating meeting with ${timeSlots.length} time slots');
 
-      // ✅ Call API
       final success = await MeetingApi.createMeetingRequest(
         authToken: widget.authToken,
         admissionId: widget.admissionId,
@@ -658,7 +680,7 @@ class _RequestMeetingModalState extends State<RequestMeetingModal> {
 
       if (success) {
         if (mounted) {
-          Navigator.pop(context, true); // ✅ Return true to reload
+          Navigator.pop(context, true);
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('✅ Meeting request submitted successfully!'),
@@ -705,8 +727,7 @@ class _RequestMeetingModalState extends State<RequestMeetingModal> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding:
-      EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: Container(
         padding: const EdgeInsets.all(20.0),
         decoration: const BoxDecoration(
@@ -724,9 +745,10 @@ class _RequestMeetingModalState extends State<RequestMeetingModal> {
                   const Text(
                     'Request a Meeting',
                     style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87),
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
                   ),
                   IconButton(
                     icon: const Icon(Icons.close, color: Colors.black54),
@@ -735,40 +757,100 @@ class _RequestMeetingModalState extends State<RequestMeetingModal> {
                 ],
               ),
               const SizedBox(height: 20),
-              const Text('Select Teacher',
-                  style: TextStyle(fontWeight: FontWeight.w500)),
+
+              // ✅ TEACHER SELECTION WITH LOADING STATE
+              const Text('Select Teacher', style: TextStyle(fontWeight: FontWeight.w500)),
               const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: DropdownButtonFormField<String>(
-                  value: _selectedTeacherName,
-                  items: _teachers.map((teacher) {
-                    return DropdownMenuItem<String>(
-                        value: teacher['name'],
-                        child:
-                        Text('${teacher['name']} - ${teacher['subject']}'));
-                  }).toList(),
-                  onChanged: (newValue) {
-                    setState(() {
-                      _selectedTeacherName = newValue;
-                      // ✅ Find teacher ID
-                      _selectedTeacherId = _teachers.firstWhere(
-                              (t) => t['name'] == newValue)['id'];
-                    });
-                  },
-                  decoration: const InputDecoration(
-                    hintText: 'Select a teacher',
-                    border: InputBorder.none,
+
+              if (_isLoadingTeachers)
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                ),
-              ),
+                  child: const Row(
+                    children: [
+                      SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 12),
+                      Text('Loading teachers...', style: TextStyle(color: Colors.grey)),
+                    ],
+                  ),
+                )
+              else if (_teachersError != null)
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.red.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.error_outline, color: Colors.red.shade700),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Failed to load teachers',
+                          style: TextStyle(color: Colors.red.shade700),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: _loadTeachers,
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                )
+              else if (_teachers.isEmpty)
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      'No teachers available',
+                      style: TextStyle(color: Colors.orange),
+                    ),
+                  )
+                else
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: DropdownButtonFormField<String>(
+                      value: _selectedTeacherId,
+                      items: _teachers.map((teacher) {
+                        return DropdownMenuItem<String>(
+                          value: teacher.id,
+                          child: Text(teacher.fullName),
+                        );
+                      }).toList(),
+                      onChanged: (newValue) {
+                        setState(() {
+                          _selectedTeacherId = newValue;
+                          _selectedTeacherName = _teachers
+                              .firstWhere((t) => t.id == newValue)
+                              .fullName;
+                        });
+                        print('[RequestMeeting] Selected teacher: $_selectedTeacherName (ID: $newValue)');
+                      },
+                      decoration: const InputDecoration(
+                        hintText: 'Select a teacher',
+                        border: InputBorder.none,
+                      ),
+                    ),
+                  ),
+
               const SizedBox(height: 20),
-              const Text('Reason for Meeting',
-                  style: TextStyle(fontWeight: FontWeight.w500)),
+              const Text('Reason for Meeting', style: TextStyle(fontWeight: FontWeight.w500)),
               const SizedBox(height: 8),
               TextField(
                 controller: _reasonController,
@@ -784,8 +866,7 @@ class _RequestMeetingModalState extends State<RequestMeetingModal> {
                 ),
               ),
               const SizedBox(height: 20),
-              const Text('Preferred Time Slot 1 (Required)',
-                  style: TextStyle(fontWeight: FontWeight.w500)),
+              const Text('Preferred Time Slot 1 (Required)', style: TextStyle(fontWeight: FontWeight.w500)),
               const SizedBox(height: 8),
               Row(
                 children: [
@@ -827,8 +908,7 @@ class _RequestMeetingModalState extends State<RequestMeetingModal> {
                 ],
               ),
               const SizedBox(height: 20),
-              const Text('Preferred Time Slot 2 (Optional)',
-                  style: TextStyle(fontWeight: FontWeight.w500)),
+              const Text('Preferred Time Slot 2 (Optional)', style: TextStyle(fontWeight: FontWeight.w500)),
               const SizedBox(height: 8),
               Row(
                 children: [
@@ -871,7 +951,7 @@ class _RequestMeetingModalState extends State<RequestMeetingModal> {
               ),
               const SizedBox(height: 30),
               ElevatedButton(
-                onPressed: _isSubmitting ? null : _submitRequest,
+                onPressed: (_isSubmitting || _isLoadingTeachers) ? null : _submitRequest,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.blueAccent,
                   minimumSize: const Size(double.infinity, 50),
@@ -889,9 +969,9 @@ class _RequestMeetingModalState extends State<RequestMeetingModal> {
                     strokeWidth: 2,
                   ),
                 )
-                    : const Text('Submit Request',
-                    style: TextStyle(color: Colors.white)),
+                    : const Text('Submit Request', style: TextStyle(color: Colors.white)),
               ),
+              const SizedBox(height: 16),
             ],
           ),
         ),

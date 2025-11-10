@@ -1,6 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:async';
 
 import '../teacher_session_manager.dart';
 import '../universal_notification_service.dart';
@@ -53,7 +54,8 @@ class _TeacherNotificationsScreenState
 
       // ✅ If not found in separate keys, get from TeacherSessionManager
       if (_authToken == null || _authToken!.isEmpty) {
-        print('[TeacherNotif] 🔄 Token not in separate key, checking TeacherSessionManager...');
+        print(
+            '[TeacherNotif] 🔄 Token not in separate key, checking TeacherSessionManager...');
         final sessionManager = TeacherSessionManager();
         await sessionManager.initialize();
         _authToken = sessionManager.authToken;
@@ -63,13 +65,15 @@ class _TeacherNotificationsScreenState
           // Save it to separate keys for next time
           await prefs.setString('teacher_auth_token', _authToken!);
           if (sessionManager.currentTeacher?.email != null) {
-            await prefs.setString('teacher_email', sessionManager.currentTeacher!.email);
+            await prefs.setString(
+                'teacher_email', sessionManager.currentTeacher!.email);
             _teacherEmail = sessionManager.currentTeacher!.email;
           }
         }
       }
 
-      print('[TeacherNotif] Auth Token: ${_authToken != null ? "Found: $_authToken..." : "Missing"}');
+      print(
+          '[TeacherNotif] Auth Token: ${_authToken != null ? "Found: $_authToken..." : "Missing"}');
       print('[TeacherNotif] Teacher Email: $_teacherEmail');
 
       // Set role to 'teacher' for isolated storage
@@ -81,28 +85,32 @@ class _TeacherNotificationsScreenState
       // 3. Fetch notifications from server
       if (_authToken != null && _authToken!.isNotEmpty) {
         print('[TeacherNotif] 🔄 Fetching notifications from server...');
-        await _notificationService.fetchAndMergeFromServer(authToken: _authToken);
+        await _notificationService.fetchAndMergeFromServer(
+            authToken: _authToken);
       } else {
         print('[TeacherNotif] ⚠️ No auth token, skipping server fetch');
       }
 
       // 4. Load stored notifications
       _notifications = _notificationService.getStoredNotifications();
-      print('[TeacherNotif] 📥 Loaded ${_notifications.length} TEACHER notifications');
+      print(
+          '[TeacherNotif] 📥 Loaded ${_notifications.length} TEACHER notifications');
 
       // 5. Listen for real-time notification updates
       _notificationSubscription =
           _notificationService.notificationsStream.listen((updatedList) {
-            if (mounted) {
-              print('[TeacherNotif] 🔔 Real-time update: ${updatedList.length} notifications');
-              setState(() {
-                _notifications = updatedList;
-              });
-            }
+        if (mounted) {
+          print(
+              '[TeacherNotif] 🔔 Real-time update: ${updatedList.length} notifications');
+          setState(() {
+            _notifications = updatedList;
           });
+        }
+      });
 
       _isInitialized = true;
-      print('[TeacherNotif] ✅ Initialized with ${_notifications.length} notifications');
+      print(
+          '[TeacherNotif] ✅ Initialized with ${_notifications.length} notifications');
     } catch (e, stackTrace) {
       print('[TeacherNotif] ❌ Initialization error: $e');
       print('[TeacherNotif] Stack trace: $stackTrace');
@@ -120,6 +128,7 @@ class _TeacherNotificationsScreenState
       }
     }
   }
+
   Future<void> _refreshNotifications() async {
     setState(() => _isLoading = true);
     try {
@@ -137,7 +146,8 @@ class _TeacherNotificationsScreenState
       setState(() {
         _notifications = _notificationService.getStoredNotifications();
       });
-      print('[TeacherNotif] ✅ Refresh complete: ${_notifications.length} notifications');
+      print(
+          '[TeacherNotif] ✅ Refresh complete: ${_notifications.length} notifications');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -165,6 +175,7 @@ class _TeacherNotificationsScreenState
     }
   }
 
+  // --- RE-ADDED: Getter for unread count ---
   int get _unreadCount => _notifications.where((n) => !n.isRead).length;
 
   @override
@@ -178,100 +189,69 @@ class _TeacherNotificationsScreenState
           'Notifications',
           style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
         ),
+        // --- UPDATED: Re-added actions ---
         actions: [
-          Stack(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.refresh, color: Colors.black54),
-                onPressed: _isLoading ? null : _refreshNotifications,
-                tooltip: 'Refresh notifications',
-              ),
-              if (_unreadCount > 0)
-                Positioned(
-                  right: 8,
-                  top: 8,
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: Colors.red,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    constraints: const BoxConstraints(
-                      minWidth: 16,
-                      minHeight: 16,
-                    ),
-                    child: Text(
-                      '$_unreadCount',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
+          // 1. Unread Count Badge
+          if (_unreadCount > 0)
+            Padding(
+              // Padding to center it vertically with the button
+              padding: const EdgeInsets.only(top: 8.0, right: 4.0),
+              child: Container(
+                padding: const EdgeInsets.all(6),
+                decoration: const BoxDecoration(
+                  color: Colors.red,
+                  shape: BoxShape.circle,
                 ),
-            ],
+                child: Text(
+                  '$_unreadCount',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          // 2. Refresh Button
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.black54),
+            onPressed: _isLoading ? null : _refreshNotifications,
+            tooltip: 'Refresh notifications',
           ),
           const SizedBox(width: 8),
         ],
+        // --- END UPDATE ---
         backgroundColor: const Color(0xFFF0F4F8),
         elevation: 0,
         centerTitle: true,
       ),
-      body: Stack(
-        children: [
-          RefreshIndicator(
-            onRefresh: _refreshNotifications,
-            child: _isLoading && _notifications.isEmpty
-                ? const Center(child: CircularProgressIndicator())
-                : _notifications.isEmpty
+      body: RefreshIndicator(
+        onRefresh: _refreshNotifications,
+        child: _isLoading && _notifications.isEmpty
+            ? const Center(child: CircularProgressIndicator())
+            : _notifications.isEmpty
                 ? _buildEmptyState()
                 : SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Live Notifications',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black87,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Live Notifications',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
                         ),
-                      ),
-                      if (_notifications.isNotEmpty)
-                        TextButton.icon(
-                          onPressed: _markAllAsRead,
-                          icon: const Icon(Icons.done_all, size: 18),
-                          label: const Text('Mark all as read'),
-                        ),
-                    ],
+                        const SizedBox(height: 20),
+                        ..._notifications.map((notification) =>
+                            _buildNotificationCard(notification)),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 20),
-                  ..._notifications.map((notification) =>
-                      _buildNotificationCard(notification)),
-                ],
-              ),
-            ),
-          ),
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 24.0),
-              child: FloatingActionButton.extended(
-                onPressed: _showSendNotificationDialog,
-                label: const Text('Send Notification'),
-                icon: const Icon(Icons.add),
-                backgroundColor: Colors.blueAccent,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -309,7 +289,7 @@ class _TeacherNotificationsScreenState
                   backgroundColor: const Color(0xFF2A65F8),
                   foregroundColor: Colors.white,
                   padding:
-                  const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -320,27 +300,6 @@ class _TeacherNotificationsScreenState
         ),
       ],
     );
-  }
-
-  Future<void> _markAllAsRead() async {
-    print('[TeacherNotif] 📖 Marking all notifications as read...');
-    await _notificationService.markAllAsRead(
-      syncWithServer: true,
-      serverToken: _authToken,
-    );
-    setState(() {
-      _notifications = _notificationService.getStoredNotifications();
-    });
-    print('[TeacherNotif] ✅ All notifications marked as read');
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('✅ All notifications marked as read'),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 2),
-        ),
-      );
-    }
   }
 
   void _showNotificationDetailsDialog(
@@ -358,7 +317,7 @@ class _TeacherNotificationsScreenState
       builder: (BuildContext context) {
         return AlertDialog(
           shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
           title: Row(
             children: [
               Icon(
@@ -405,23 +364,23 @@ class _TeacherNotificationsScreenState
                   ),
                   const SizedBox(height: 8),
                   ...notification.data.entries.map((entry) => Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(Icons.info_outline,
-                            size: 16, color: Colors.grey[600]),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            '${entry.key}: ${entry.value}',
-                            style: TextStyle(
-                                fontSize: 12, color: Colors.grey[600]),
-                          ),
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.info_outline,
+                                size: 16, color: Colors.grey[600]),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '${entry.key}: ${entry.value}',
+                                style: TextStyle(
+                                    fontSize: 12, color: Colors.grey[600]),
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                  )),
+                      )),
                 ],
               ],
             ),
@@ -520,7 +479,7 @@ class _TeacherNotificationsScreenState
                         Text(
                           timeAgo,
                           style:
-                          TextStyle(color: Colors.grey[600], fontSize: 12),
+                              TextStyle(color: Colors.grey[600], fontSize: 12),
                         ),
                       ],
                     ),
@@ -573,199 +532,6 @@ class _TeacherNotificationsScreenState
           ),
         ),
       ),
-    );
-  }
-
-  void _showSendNotificationDialog() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return const SendNotificationDialog();
-      },
-    );
-  }
-}
-
-// --- The Dialog Widget (Keep your existing dialog) ---
-class SendNotificationDialog extends StatefulWidget {
-  const SendNotificationDialog({super.key});
-
-  @override
-  State<SendNotificationDialog> createState() => _SendNotificationDialogState();
-}
-
-class _SendNotificationDialogState extends State<SendNotificationDialog> {
-  final List<String> _audienceOptions = ['Admin', 'Parents', 'Student', 'All'];
-  List<String> _selectedAudiences = [];
-  String? _selectedMessageType;
-
-  final TextEditingController _titleController = TextEditingController();
-  final TextEditingController _messageController = TextEditingController();
-
-  void _sendNotification() {
-    if (_selectedAudiences.isEmpty ||
-        _selectedMessageType == null ||
-        _titleController.text.trim().isEmpty ||
-        _messageController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please fill all fields to send the notification.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
-    // Handle send logic
-    Navigator.of(context).pop();
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-      content: Text('Notification has been sent!'),
-      backgroundColor: Colors.green,
-    ));
-  }
-
-  @override
-  void dispose() {
-    _titleController.dispose();
-    _messageController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Send Notification'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildMultiSelectDropdown(),
-            const SizedBox(height: 20),
-            _buildSingleSelectDropdown(),
-            const SizedBox(height: 20),
-            TextField(
-              controller: _titleController,
-              decoration: InputDecoration(
-                labelText: 'Title',
-                border:
-                OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _messageController,
-              maxLines: 4,
-              decoration: InputDecoration(
-                hintText: 'Type your message here...',
-                border:
-                OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            )
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel')),
-        ElevatedButton(onPressed: _sendNotification, child: const Text('Send')),
-      ],
-    );
-  }
-
-  Widget _buildMultiSelectDropdown() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text("Send to:", style: TextStyle(fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        InputDecorator(
-          decoration: InputDecoration(
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              isExpanded: true,
-              hint: const Text('Select Audience'),
-              value: null,
-              items: _audienceOptions.map((String value) {
-                return DropdownMenuItem<String>(
-                  value: value,
-                  enabled: false,
-                  child: StatefulBuilder(builder: (context, menuSetState) {
-                    return InkWell(
-                      onTap: () {
-                        _toggleSelection(value);
-                        menuSetState(() {});
-                        setState(() {});
-                      },
-                      child: Row(
-                        children: [
-                          Checkbox(
-                            value: _selectedAudiences.contains(value),
-                            onChanged: (bool? checked) {
-                              _toggleSelection(value);
-                              menuSetState(() {});
-                              setState(() {});
-                            },
-                          ),
-                          Text(value),
-                        ],
-                      ),
-                    );
-                  }),
-                );
-              }).toList(),
-              onChanged: (String? value) {},
-              selectedItemBuilder: (BuildContext context) {
-                return [
-                  Text(
-                    _selectedAudiences.isEmpty
-                        ? 'Select Audience'
-                        : _selectedAudiences.join(', '),
-                    overflow: TextOverflow.ellipsis,
-                  )
-                ];
-              },
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  void _toggleSelection(String value) {
-    if (_selectedAudiences.contains(value)) {
-      _selectedAudiences.remove(value);
-    } else {
-      _selectedAudiences.add(value);
-    }
-  }
-
-  Widget _buildSingleSelectDropdown() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text("Type of Message:",
-            style: TextStyle(fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        DropdownButtonFormField<String>(
-          value: _selectedMessageType,
-          items: ['Assignment', 'Daily Report', 'Announcement', 'Live Events']
-              .map((String type) {
-            return DropdownMenuItem<String>(value: type, child: Text(type));
-          }).toList(),
-          onChanged: (newValue) =>
-              setState(() => _selectedMessageType = newValue),
-          decoration: InputDecoration(
-            hintText: 'Select Type',
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-          ),
-        ),
-      ],
     );
   }
 }

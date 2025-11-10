@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:vraz_application/Student/service/firebase_notification_service.dart';
 import 'package:vraz_application/home_screen.dart';
 import 'package:vraz_application/student_session_manager.dart';
@@ -16,6 +16,9 @@ import 'doubts.dart';
 import 'feedback.dart';
 import 'notification.dart';
 import 'result.dart';
+// --- ADDED IMPORT ---
+// Assuming your StudentDashboard screen is in a file with this name
+import 'student_dashboard_screen.dart';
 import 'student_id.dart';
 import 'timetable.dart';
 
@@ -31,7 +34,8 @@ class AppDrawer extends StatelessWidget {
         builder: (context, profileProvider, child) {
           final profile = profileProvider.studentProfile;
           final studentName = profile?.studentUser.fullName ?? 'Student';
-          final studentEmail = profile?.studentUser.email ?? 'email@example.com';
+          final studentEmail =
+              profile?.studentUser.email ?? 'email@example.com';
           final photoUrl = profile?.studentUser.photoUrl ?? '';
 
           return ListView(
@@ -53,8 +57,9 @@ class AppDrawer extends StatelessWidget {
                   backgroundColor: Colors.white,
                   onBackgroundImageError: photoUrl.isNotEmpty
                       ? (exception, stackTrace) {
-                    print('⚠️ Error loading drawer profile image: $exception');
-                  }
+                          print(
+                              '⚠️ Error loading drawer profile image: $exception');
+                        }
                       : null,
                 ),
                 decoration: const BoxDecoration(
@@ -64,7 +69,10 @@ class AppDrawer extends StatelessWidget {
               _buildDrawerItem(
                 icon: Icons.dashboard_outlined,
                 text: 'Dashboard',
-                onTap: () => Navigator.pop(context),
+                // --- CHANGED ---
+                // Now correctly navigates to the Dashboard screen
+                onTap: () =>
+                    _navigateToScreen(context, const StudentDashboard()),
               ),
               _buildDrawerItem(
                 icon: Icons.school_outlined,
@@ -74,22 +82,26 @@ class AppDrawer extends StatelessWidget {
               _buildDrawerItem(
                 icon: Icons.calendar_today_outlined,
                 text: 'Attendance',
-                onTap: () => _navigateToScreen(context, const AttendanceScreen()),
+                onTap: () =>
+                    _navigateToScreen(context, const AttendanceScreen()),
               ),
               _buildDrawerItem(
                 icon: Icons.schedule_outlined,
                 text: 'Timetable',
-                onTap: () => _navigateToScreen(context, const TimetableScreen()),
+                onTap: () =>
+                    _navigateToScreen(context, const TimetableScreen()),
               ),
               _buildDrawerItem(
                 icon: Icons.question_answer_outlined,
                 text: 'Doubt Lectures',
-                onTap: () => _navigateToScreen(context, const DoubtLectureScreen()),
+                onTap: () =>
+                    _navigateToScreen(context, const DoubtLectureScreen()),
               ),
               _buildDrawerItem(
                 icon: Icons.assignment_outlined,
                 text: 'Assignments',
-                onTap: () => _navigateToScreen(context, const AssignmentsScreen()),
+                onTap: () =>
+                    _navigateToScreen(context, const AssignmentsScreen()),
               ),
               _buildDrawerItem(
                 icon: Icons.help_outline,
@@ -99,12 +111,14 @@ class AppDrawer extends StatelessWidget {
               _buildDrawerItem(
                 icon: Icons.quiz_outlined,
                 text: 'Test Portal',
+                // Assuming this is a placeholder
                 onTap: () => Navigator.pop(context),
               ),
               _buildDrawerItem(
                 icon: Icons.person_pin_outlined,
                 text: 'Student ID Card',
-                onTap: () => _navigateToScreen(context, const StudentIdScreen()),
+                onTap: () =>
+                    _navigateToScreen(context, const StudentIdScreen()),
               ),
               _buildDrawerItem(
                 icon: Icons.emoji_events_outlined,
@@ -114,7 +128,8 @@ class AppDrawer extends StatelessWidget {
               _buildDrawerItem(
                 icon: Icons.notifications_outlined,
                 text: 'Notifications',
-                onTap: () => _navigateToScreen(context, const NotificationsScreen()),
+                onTap: () =>
+                    _navigateToScreen(context, const NotificationsScreen()),
               ),
               _buildDrawerItem(
                 icon: Icons.feedback_outlined,
@@ -125,7 +140,8 @@ class AppDrawer extends StatelessWidget {
               _buildDrawerItem(
                 icon: Icons.logout,
                 text: 'Logout',
-                onTap: () => _handleLogout(context, sessionManager, profileProvider),
+                onTap: () =>
+                    _handleLogout(context, sessionManager, profileProvider),
               ),
             ],
           );
@@ -135,10 +151,12 @@ class AppDrawer extends StatelessWidget {
   }
 
   Future<void> _handleLogout(
-      BuildContext context,
-      SessionManager sessionManager,
-      StudentProfileProvider profileProvider,
-      ) async {
+    BuildContext context,
+    SessionManager sessionManager,
+    StudentProfileProvider profileProvider,
+  ) async {
+    // ... your excellent logout code ...
+    // This logic is great and doesn't need changes.
     print('🔍 [LOGOUT] Starting logout process...');
 
     final navigator = Navigator.of(context);
@@ -160,7 +178,7 @@ class AppDrawer extends StatelessWidget {
           ),
           ElevatedButton(
             onPressed: () {
-              print('🔍 [LOGOUT] User confirmed logout');
+              print('🔍 [LOGTODOUT] User confirmed logout');
               Navigator.of(dialogContext).pop(true);
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
@@ -248,7 +266,7 @@ class AppDrawer extends StatelessWidget {
             return const HomeScreen();
           },
         ),
-            (route) {
+        (route) {
           print('🔍 [LOGOUT] Removing route: ${route.settings.name}');
           return false;
         },
@@ -273,7 +291,7 @@ class AppDrawer extends StatelessWidget {
       print('🔍 [LOGOUT] Error occurred, forcing navigation...');
       navigator.pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const HomeScreen()),
-            (route) => false,
+        (route) => false,
       );
 
       scaffoldMessenger.showSnackBar(
@@ -300,8 +318,10 @@ class AppDrawer extends StatelessWidget {
   }
 
   void _navigateToScreen(BuildContext context, Widget screen) {
-    Navigator.pop(context);
-    Navigator.push(
+    Navigator.pop(context); // First, close the drawer
+    Navigator.pushReplacement(
+      // --- CHANGED ---
+      // Replaces the current screen instead of stacking
       context,
       MaterialPageRoute(builder: (context) => screen),
     );

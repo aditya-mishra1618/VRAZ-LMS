@@ -10,7 +10,6 @@ class ResultResponse {
   final int? rank;
   final Test test;
   final Batch batch;
-
   ResultResponse({
     required this.id,
     required this.testId,
@@ -60,7 +59,9 @@ class ResultResponse {
 
 class Test {
   final String name;
+
   final String date;
+
   final List<TestStructure> testStructure;
 
   Test({
@@ -90,10 +91,15 @@ class Test {
 
 class TestStructure {
   final String id;
+
   final String topicId;
+
   final int maxMarks;
+
   final String subjectId;
+
   final String topicName;
+
   final String subjectName;
 
   TestStructure({

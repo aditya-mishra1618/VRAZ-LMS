@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../student_profile_provider.dart';
 import 'app_drawer.dart';
 import 'assignment.dart';
@@ -33,14 +34,16 @@ class _StudentDashboardState extends State<StudentDashboard> {
   }
 
   Future<void> _loadProfile() async {
-    final provider = Provider.of<StudentProfileProvider>(context, listen: false);
+    final provider =
+        Provider.of<StudentProfileProvider>(context, listen: false);
     if (!provider.hasData && !provider.isLoading) {
       await provider.loadStudentProfile();
     }
   }
 
   Future<void> _refreshProfile() async {
-    final provider = Provider.of<StudentProfileProvider>(context, listen: false);
+    final provider =
+        Provider.of<StudentProfileProvider>(context, listen: false);
     await provider.refreshProfile();
   }
 
@@ -77,14 +80,16 @@ class _StudentDashboardState extends State<StudentDashboard> {
               }
 
               // Show error state
-              if (profileProvider.errorMessage != null && !profileProvider.hasData) {
+              if (profileProvider.errorMessage != null &&
+                  !profileProvider.hasData) {
                 return Center(
                   child: Padding(
                     padding: const EdgeInsets.all(24.0),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
+                        Icon(Icons.error_outline,
+                            size: 64, color: Colors.red[300]),
                         const SizedBox(height: 16),
                         Text(
                           'Failed to Load Profile',
@@ -174,7 +179,8 @@ class _StudentDashboardState extends State<StudentDashboard> {
           ),
         ),
         IconButton(
-          icon: const Icon(Icons.notifications_none_rounded, color: Colors.grey),
+          icon:
+              const Icon(Icons.notifications_none_rounded, color: Colors.grey),
           onPressed: () => _navigateTo(const NotificationsScreen()),
         ),
         const SizedBox(width: 8),
@@ -185,8 +191,8 @@ class _StudentDashboardState extends State<StudentDashboard> {
           backgroundColor: Colors.grey[200],
           onBackgroundImageError: photoUrl.isNotEmpty
               ? (exception, stackTrace) {
-            print('⚠️ Error loading profile image: $exception');
-          }
+                  print('⚠️ Error loading profile image: $exception');
+                }
               : null,
         ),
       ],
@@ -241,8 +247,8 @@ class _StudentDashboardState extends State<StudentDashboard> {
             backgroundColor: Colors.grey[200],
             onBackgroundImageError: photoUrl.isNotEmpty
                 ? (exception, stackTrace) {
-              print('⚠️ Error loading profile image: $exception');
-            }
+                    print('⚠️ Error loading profile image: $exception');
+                  }
                 : null,
           ),
         ],

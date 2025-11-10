@@ -1,4 +1,3 @@
-// 1. DART PACKAGES
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart'; // Import for date formatting
 import 'package:provider/provider.dart';
@@ -53,7 +52,8 @@ class _TimetableScreenState extends State<TimetableScreen>
     super.initState();
     _tabController =
         TabController(length: 2, vsync: this); // Initialize TabController
-    _currentDate = _getInitialDate();
+    // --- MODIFICATION: Removed weekend skipping ---
+    _currentDate = DateTime.now(); // Was: _getInitialDate();
 
     // Fetch token and initial timetable
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -67,16 +67,8 @@ class _TimetableScreenState extends State<TimetableScreen>
     super.dispose();
   }
 
-  // Helper to get initial date (ensures it's a weekday)
-  DateTime _getInitialDate() {
-    DateTime now = DateTime.now();
-    if (now.weekday == DateTime.saturday) {
-      return now.add(const Duration(days: 2)); // Move to Monday
-    } else if (now.weekday == DateTime.sunday) {
-      return now.add(const Duration(days: 1)); // Move to Monday
-    }
-    return now;
-  }
+  // --- REMOVED: _getInitialDate() function is no longer needed ---
+  // DateTime _getInitialDate() { ... }
 
   // Get token and perform initial fetch
   Future<void> _initializeAndFetch() async {
@@ -176,12 +168,9 @@ class _TimetableScreenState extends State<TimetableScreen>
     final oldDate = _currentDate;
     setState(() {
       _currentDate = _currentDate.add(Duration(days: days));
-      // Simple skip weekends for display navigation (optional)
-      if (_currentDate.weekday == DateTime.saturday) {
-        _currentDate = _currentDate.add(Duration(days: days > 0 ? 2 : -1));
-      } else if (_currentDate.weekday == DateTime.sunday) {
-        _currentDate = _currentDate.add(Duration(days: days > 0 ? 1 : -2));
-      }
+      // --- MODIFICATION: Removed weekend skipping logic ---
+      // if (_currentDate.weekday == DateTime.saturday) { ... }
+      // else if (_currentDate.weekday == DateTime.sunday) { ... }
     });
 
     // Check if the week has changed
@@ -301,14 +290,18 @@ class _TimetableScreenState extends State<TimetableScreen>
     final weekRange =
         "${DateFormat('d MMM').format(weekDates.$1)} - ${DateFormat('d MMM, yyyy').format(weekDates.$2)}";
 
+    // --- MODIFICATION: Added Saturday and Sunday ---
     final weekdays = [
       DateTime.monday,
       DateTime.tuesday,
       DateTime.wednesday,
       DateTime.thursday,
-      DateTime.friday
-    ]; // Only Mon-Fri
-    final weekdayNames = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+      DateTime.friday,
+      DateTime.saturday,
+      DateTime.sunday
+    ];
+    final weekdayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    // --- END MODIFICATION ---
 
     return SingleChildScrollView(
       // Allow scrolling if content overflows

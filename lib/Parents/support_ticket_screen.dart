@@ -1,33 +1,11 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import 'package:vraz_application/Parents/service/support_ticket_service.dart';
 import 'package:vraz_application/Parents/support_chat.dart';
-
-// Import your drawer and the chat screen
-import 'parent_app_drawer.dart'; // Make sure this path is correct
-
-// --- Data Model for a Support Ticket ---
-class SupportTicket {
-  final String id;
-  final String title;
-  final DateTime date;
-  String status; // 'Resolved', 'In Progress', 'Pending'
-  final String? category;
-  final String? details;
-  final String? imagePath;
-
-  SupportTicket({
-    required this.id,
-    required this.title,
-    required this.date,
-    required this.status,
-    this.category,
-    this.details,
-    this.imagePath,
-  });
-}
+import 'package:vraz_application/Parents/parent_app_drawer.dart';
+import '../parent_session_manager.dart';
+import 'models/support_ticket_model.dart';
 
 class SupportTicketScreen extends StatefulWidget {
   const SupportTicketScreen({super.key});
@@ -38,49 +16,162 @@ class SupportTicketScreen extends StatefulWidget {
 
 class _SupportTicketScreenState extends State<SupportTicketScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  final SupportTicketService _ticketService = SupportTicketService();
 
-  // --- Dummy Data for Past Tickets ---
-  final List<SupportTicket> _pastTickets = [
-    SupportTicket(
-        id: '1',
-        title: 'Academic: Problem with Course Material',
-        date: DateTime(2024, 1, 10),
-        status: 'In Progress',
-        category: 'Academic',
-        details: 'Link for Physics Chapter 3 PDF is broken.'),
-    SupportTicket(
-        id: '2',
-        title: 'Attendance: Issue with Attendance',
-        date: DateTime(2024, 1, 15),
-        status: 'Resolved',
-        category: 'Attendance',
-        details: 'Marked absent on a day child was present.'),
-    SupportTicket(
-      id: '3',
-      title: 'Payment: Fee Payment Confirmation',
-      date: DateTime.now().subtract(const Duration(days: 1)),
-      status: 'Pending',
-      category: 'Payment',
-      details: 'Payment made via UPI, not reflecting in portal yet.',
-    )
-  ];
+  List<SupportTicketModel> _tickets = [];
+  bool _isLoading = false;
+  String? _errorMessage;
 
-  // Method to add a new ticket to the list
-  void _addTicket(SupportTicket ticket) {
-    setState(() {
-      _pastTickets.insert(0, ticket);
+  @override
+  void initState() {
+    super.initState();
+    print('🔷 [INIT] SupportTicketScreen initialized');
+    // Load tickets after the first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      print('🔷 [INIT] Post frame callback - Loading tickets');
+      _loadTickets();
     });
   }
 
-  // --- Navigation to Chat Screen ---
-  void _navigateToChat(SupportTicket ticket) {
+  // ============================================
+  // Load tickets from API (WITH DEBUGGING)
+  // ============================================
+  Future<void> _loadTickets() async {
+    print('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    print('🔵 [LOAD_TICKETS] Starting to load tickets...');
+    print('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+    final sessionManager = Provider.of<ParentSessionManager>(context, listen: false);
+
+    // 🔍 DEBUG: Print session details
+    print('🔍 [SESSION_CHECK] Checking session manager...');
+    print('   ├─ isLoggedIn: ${sessionManager.isLoggedIn}');
+    print('   ├─ token exists: ${sessionManager.token != null}');
+    print('   ├─ token length: ${sessionManager.token?.length ?? 0}');
+    print('   ├─ currentParent: ${sessionManager.currentParent?.fullName ?? "NULL"}');
+    print('   └─ phoneNumber: ${sessionManager.phoneNumber ?? "NULL"}');
+
+    if (sessionManager.token != null && sessionManager.token!.isNotEmpty) {
+      print('   ✅ Token first 30 chars: ${sessionManager.token!.substring(0, sessionManager.token!.length > 30 ? 30 : sessionManager.token!.length)}...');
+    } else {
+      print('   ❌ Token is NULL or EMPTY');
+    }
+
+    // Check if user is logged in
+    if (!sessionManager.isLoggedIn || sessionManager.token == null) {
+      print('❌ [AUTH_FAILED] User not logged in or token is null');
+      setState(() {
+        _errorMessage = 'Please login to view your support tickets.';
+      });
+      return;
+    }
+
+    print('✅ [AUTH_SUCCESS] User is logged in, proceeding with API call\n');
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    print('🌐 [API_CALL] Calling fetchSupportTickets with token...');
+    final response = await _ticketService.fetchSupportTickets(sessionManager.token!);
+    print('🌐 [API_RESPONSE] Received response from API\n');
+
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+        if (response.success) {
+          _tickets = response.data ?? [];
+          print('✅ [SUCCESS] Tickets loaded successfully');
+          print('   └─ Total tickets: ${_tickets.length}');
+          if (_tickets.isNotEmpty) {
+            print('\n📋 [TICKETS_LIST] Ticket details:');
+            for (var i = 0; i < _tickets.length; i++) {
+              print('   ${i + 1}. ID: ${_tickets[i].id} | Title: ${_tickets[i].title} | Status: ${_tickets[i].status}');
+            }
+          }
+        } else {
+          _errorMessage = response.errorMessage;
+          print('❌ [ERROR] Failed to load tickets');
+          print('   ├─ Error message: $_errorMessage');
+          print('   └─ Status code: ${response.statusCode}');
+
+          if (response.statusCode == 401) {
+            print('🔐 [AUTH_EXPIRED] Token expired - handling session expiry');
+            _handleSessionExpired(sessionManager);
+          }
+        }
+      });
+    }
+
+    print('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    print('🔵 [LOAD_TICKETS] Finished loading tickets');
+    print('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+  }
+
+  // ============================================
+  // Handle session expired
+  // ============================================
+  void _handleSessionExpired(ParentSessionManager sessionManager) {
+    print('⚠️ [SESSION_EXPIRED] Showing session expired dialog');
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Session Expired'),
+        content: const Text('Your session has expired. Please login again.'),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              print('🗑️ [CLEAR_SESSION] User clicked OK - Clearing session...');
+              await sessionManager.clearSession();
+              if (mounted) {
+                print('🔄 [NAVIGATION] Closing dialog');
+                Navigator.of(context).pop(); // Close dialog
+                // TODO: Navigate to login screen
+                // Navigator.pushReplacementNamed(context, '/login');
+              }
+            },
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================
+  // Show error dialog
+  // ============================================
+  void _showErrorDialog(String title, String message) {
+    print('⚠️ [ERROR_DIALOG] Showing error: $title - $message');
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================
+  // Navigate to chat screen
+  // ============================================
+  void _navigateToChat(SupportTicketModel ticket) {
+    print('💬 [NAVIGATION] Navigating to chat for ticket: ${ticket.title}');
+    print('   └─ Ticket ID: ${ticket.id}');
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => SupportChatScreen(
-          // Navigate to the chat screen
           grievanceTitle: ticket.title,
-          navigationSource: 'support_ticket_screen', // Pass the source
+          navigationSource: 'support_ticket_screen',
+          ticketId: ticket.id, // ✅ ADD THIS LINE
         ),
       ),
     );
@@ -96,39 +187,35 @@ class _SupportTicketScreenState extends State<SupportTicketScreen> {
           icon: const Icon(Icons.menu, color: Colors.black54),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
-        title: const Text('Support Tickets',
-            style:
-            TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Support Tickets',
+          style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
+        ),
         backgroundColor: Colors.white,
         elevation: 1,
         centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.black54),
+            onPressed: () {
+              print('🔄 [USER_ACTION] Refresh button clicked');
+              _loadTickets();
+            },
+            tooltip: 'Refresh',
+          ),
+        ],
       ),
       drawer: ParentAppDrawer(),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Past Tickets',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            if (_pastTickets.isEmpty)
-              const Center(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 32.0),
-                    child: Text('No tickets raised yet.',
-                        style: TextStyle(color: Colors.grey)),
-                  ))
-            else
-              ..._pastTickets.map((ticket) => _buildTicketCard(ticket)),
-          ],
-        ),
-      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _errorMessage != null
+          ? _buildErrorWidget()
+          : _buildTicketsList(),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
+          print('➕ [USER_ACTION] Raise Ticket button clicked');
           _showTicketModal(context);
         },
-        // --- RENAMED ---
         label: const Text('Raise Ticket'),
         icon: const Icon(Icons.add),
         backgroundColor: Colors.blueAccent,
@@ -137,37 +224,148 @@ class _SupportTicketScreenState extends State<SupportTicketScreen> {
     );
   }
 
+  // ============================================
+  // Build error widget
+  // ============================================
+  Widget _buildErrorWidget() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.error_outline,
+              size: 64,
+              color: _errorMessage?.contains('login') == true
+                  ? Colors.orange
+                  : Colors.red,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              _errorMessage ?? 'Something went wrong',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: () {
+                print('🔄 [USER_ACTION] Retry button clicked');
+                _loadTickets();
+              },
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blueAccent,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============================================
+  // Build tickets list
+  // ============================================
+  Widget _buildTicketsList() {
+    return RefreshIndicator(
+      onRefresh: () async {
+        print('🔄 [USER_ACTION] Pull to refresh triggered');
+        await _loadTickets();
+      },
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Past Tickets',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            if (_tickets.isEmpty)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 32.0),
+                  child: Text(
+                    'No tickets raised yet.',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+              )
+            else
+              ..._tickets.map((ticket) => _buildTicketCard(ticket)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============================================
+  // Show modal for creating ticket
+  // ============================================
   void _showTicketModal(BuildContext context) {
+    print('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    print('📝 [RAISE_TICKET] Opening raise ticket modal');
+    print('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+    final sessionManager = Provider.of<ParentSessionManager>(context, listen: false);
+
+    print('🔍 [SESSION_CHECK] Checking session before showing modal...');
+    print('   ├─ isLoggedIn: ${sessionManager.isLoggedIn}');
+    print('   ├─ token exists: ${sessionManager.token != null}');
+    print('   └─ token length: ${sessionManager.token?.length ?? 0}');
+
+    if (!sessionManager.isLoggedIn || sessionManager.token == null) {
+      print('❌ [AUTH_FAILED] User not logged in - Showing error dialog');
+      _showErrorDialog('Not Logged In', 'Please login to raise a support ticket.');
+      return;
+    }
+
+    print('✅ [AUTH_SUCCESS] User authenticated - Opening modal\n');
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (BuildContext context) {
-        return RaiseSupportTicketModal(onAddTicket: _addTicket);
+        return RaiseSupportTicketModal(
+          onTicketCreated: () {
+            print('🔄 [CALLBACK] Ticket created - Reloading tickets list');
+            _loadTickets(); // Reload tickets after creation
+          },
+          authToken: sessionManager.token!,
+        );
       },
     );
   }
 
-  // --- This card now handles navigation ---
-  Widget _buildTicketCard(SupportTicket ticket) {
-    final bool isResolved = ticket.status == 'Resolved';
-    final bool canChat = !isResolved; // Enable chat if not resolved
-    final DateFormat formatter = DateFormat('MMM dd, yyyy');
-
+  // ============================================
+  // Build ticket card
+  // ============================================
+  Widget _buildTicketCard(SupportTicketModel ticket) {
     Color statusColor;
     Color statusBgColor;
+
     switch (ticket.status) {
-      case 'Resolved':
+      case 'RESOLVED':
         statusColor = Colors.green.shade700;
         statusBgColor = Colors.green.shade50;
         break;
-      case 'In Progress':
+      case 'IN_PROGRESS':
         statusColor = Colors.blue.shade700;
         statusBgColor = Colors.blue.shade50;
         break;
-      default: // Pending
+      case 'PENDING':
         statusColor = Colors.orange.shade700;
         statusBgColor = Colors.orange.shade50;
+        break;
+      default:
+        statusColor = Colors.grey.shade700;
+        statusBgColor = Colors.grey.shade50;
     }
 
     return Card(
@@ -178,11 +376,20 @@ class _SupportTicketScreenState extends State<SupportTicketScreen> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-        // --- ADDED: onTap handler ---
         onTap: () => _navigateToChat(ticket),
-        title: Text(ticket.title,
-            style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text(formatter.format(ticket.date)),
+        title: Text(
+          ticket.title,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 4.0),
+          child: Text(
+            ticket.initialMessage,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+          ),
+        ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -193,7 +400,7 @@ class _SupportTicketScreenState extends State<SupportTicketScreen> {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                ticket.status,
+                ticket.userFriendlyStatus,
                 style: TextStyle(
                   color: statusColor,
                   fontWeight: FontWeight.bold,
@@ -201,12 +408,15 @@ class _SupportTicketScreenState extends State<SupportTicketScreen> {
                 ),
               ),
             ),
-            // --- Show chat icon ---
-            const Padding(
-              padding: EdgeInsets.only(left: 8.0),
-              child: Icon(Icons.chat_bubble_outline,
-                  color: Colors.blueAccent, size: 20),
-            ),
+            if (ticket.canChat)
+              const Padding(
+                padding: EdgeInsets.only(left: 8.0),
+                child: Icon(
+                  Icons.chat_bubble_outline,
+                  color: Colors.blueAccent,
+                  size: 20,
+                ),
+              ),
           ],
         ),
       ),
@@ -214,13 +424,18 @@ class _SupportTicketScreenState extends State<SupportTicketScreen> {
   }
 }
 
-// --------------------------------------------------------------------------
-// Modal for raising a new ticket
-// --------------------------------------------------------------------------
+// ============================================
+// Modal for Raising New Support Ticket
+// ============================================
 class RaiseSupportTicketModal extends StatefulWidget {
-  final Function(SupportTicket) onAddTicket;
+  final VoidCallback onTicketCreated;
+  final String authToken;
 
-  const RaiseSupportTicketModal({super.key, required this.onAddTicket});
+  const RaiseSupportTicketModal({
+    super.key,
+    required this.onTicketCreated,
+    required this.authToken,
+  });
 
   @override
   State<RaiseSupportTicketModal> createState() =>
@@ -228,12 +443,19 @@ class RaiseSupportTicketModal extends StatefulWidget {
 }
 
 class _RaiseSupportTicketModalState extends State<RaiseSupportTicketModal> {
-  String? _selectedCategory = 'Academic';
-  File? _attachedImage;
-  final ImagePicker _picker = ImagePicker();
+  final SupportTicketService _ticketService = SupportTicketService();
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _detailsController = TextEditingController();
-  bool _isLoading = false;
+
+  String? _selectedCategory = 'Academic';
+  bool _isSubmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    print('📝 [MODAL_INIT] Raise ticket modal initialized');
+    print('   └─ Auth token length: ${widget.authToken.length}');
+  }
 
   @override
   void dispose() {
@@ -242,56 +464,106 @@ class _RaiseSupportTicketModalState extends State<RaiseSupportTicketModal> {
     super.dispose();
   }
 
-  Future<void> _pickImage(ImageSource source) async {
-    try {
-      final XFile? pickedFile = await _picker.pickImage(source: source);
-      if (pickedFile != null) {
-        setState(() {
-          _attachedImage = File(pickedFile.path);
-        });
-      }
-    } catch (e) {
-      print("Error picking image: $e");
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Failed to pick image.')));
-      }
-    }
-  }
+  // ============================================
+  // Submit ticket to API (WITH DEBUGGING)
+  // ============================================
+  Future<void> _submitTicket() async {
+    print('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    print('📤 [SUBMIT_TICKET] Starting ticket submission');
+    print('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-  void _submitTicket() {
-    if (_titleController.text.trim().isEmpty ||
-        _selectedCategory == null ||
-        _detailsController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Please fill all required fields.'),
-          backgroundColor: Colors.red));
+    // Validation
+    print('🔍 [VALIDATION] Validating form fields...');
+
+    if (_titleController.text.trim().isEmpty) {
+      print('❌ [VALIDATION_FAILED] Title is empty');
+      _showSnackBar('Please enter a ticket title', Colors.red);
       return;
     }
+    print('   ✅ Title: ${_titleController.text.trim()}');
 
-    setState(() => _isLoading = true);
+    if (_detailsController.text.trim().isEmpty) {
+      print('❌ [VALIDATION_FAILED] Details are empty');
+      _showSnackBar('Please describe the issue in detail', Colors.red);
+      return;
+    }
+    print('   ✅ Details: ${_detailsController.text.trim().substring(0, _detailsController.text.trim().length > 50 ? 50 : _detailsController.text.trim().length)}...');
 
-    final newTicket = SupportTicket(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      // Combine category and title
-      title: '${_selectedCategory!}: ${_titleController.text.trim()}',
-      date: DateTime.now(),
-      status: 'Pending',
-      category: _selectedCategory,
-      details: _detailsController.text.trim(),
-      imagePath: _attachedImage?.path,
+    if (_selectedCategory == null) {
+      print('❌ [VALIDATION_FAILED] Category not selected');
+      _showSnackBar('Please select a category', Colors.red);
+      return;
+    }
+    print('   ✅ Category: $_selectedCategory');
+    print('✅ [VALIDATION_SUCCESS] All fields validated\n');
+
+    setState(() => _isSubmitting = true);
+
+    // Prepare request
+    final fullTitle = '$_selectedCategory: ${_titleController.text.trim()}';
+    final request = CreateSupportTicketRequest(
+      title: fullTitle,
+      initialMessage: _detailsController.text.trim(),
     );
 
-    // Simulate API call
-    Future.delayed(const Duration(seconds: 1), () {
-      if (!mounted) return;
-      widget.onAddTicket(newTicket); // Call the callback
-      setState(() => _isLoading = false);
+    print('📦 [REQUEST] Preparing API request...');
+    print('   ├─ Full title: $fullTitle');
+    print('   ├─ Message length: ${_detailsController.text.trim().length}');
+    print('   └─ Token length: ${widget.authToken.length}');
+
+    // Call API
+    print('🌐 [API_CALL] Calling createSupportTicket...');
+    final response = await _ticketService.createSupportTicket(
+      token: widget.authToken,
+      request: request,
+    );
+    print('🌐 [API_RESPONSE] Received response\n');
+
+    if (!mounted) return;
+
+    setState(() => _isSubmitting = false);
+
+    if (response.success) {
+      // Success
+      print('✅ [SUCCESS] Ticket created successfully');
+      print('   └─ Ticket ID: ${response.data?.id}');
+      _showSnackBar('Ticket submitted successfully!', Colors.green);
+      widget.onTicketCreated(); // Callback to refresh list
       Navigator.pop(context); // Close modal
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Your grievance has been submitted.'),
-          backgroundColor: Colors.green));
-    });
+      print('🔄 [NAVIGATION] Modal closed\n');
+    } else {
+      // Error
+      print('❌ [ERROR] Failed to create ticket');
+      print('   ├─ Error message: ${response.errorMessage}');
+      print('   └─ Status code: ${response.statusCode}\n');
+
+      _showSnackBar(
+        response.errorMessage ?? 'Failed to submit ticket',
+        Colors.red,
+      );
+
+      // Handle token expiry
+      if (response.statusCode == 401) {
+        print('🔐 [AUTH_EXPIRED] Token expired - Closing modal');
+        Navigator.pop(context);
+        // Session will be handled by parent screen
+      }
+    }
+
+    print('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    print('📤 [SUBMIT_TICKET] Finished ticket submission');
+    print('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+  }
+
+  void _showSnackBar(String message, Color backgroundColor) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: backgroundColor,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   @override
@@ -314,59 +586,35 @@ class _RaiseSupportTicketModalState extends State<RaiseSupportTicketModal> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text(
-                    'Raise New Ticket', // Renamed
+                    'Raise New Ticket',
                     style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87),
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
                   ),
                   IconButton(
                     icon: const Icon(Icons.close, color: Colors.black54),
-                    onPressed: () => Navigator.pop(context),
+                    onPressed: () {
+                      print('❌ [USER_ACTION] Close button clicked - Modal dismissed');
+                      Navigator.pop(context);
+                    },
                   ),
                 ],
               ),
               const SizedBox(height: 20),
-              _buildDropdown(), // Category first
+              _buildDropdown(),
               const SizedBox(height: 20),
-              _buildTitleField(_titleController),
+              _buildTitleField(),
               const SizedBox(height: 20),
-              _buildDescriptionField(_detailsController),
-              const SizedBox(height: 20),
-              _buildAttachmentSection(),
-              if (_attachedImage != null) _buildImagePreview(),
+              _buildDescriptionField(),
               const SizedBox(height: 30),
-              _buildSubmitButton(_isLoading, _submitTicket),
-              const SizedBox(height: 16), // Bottom padding
+              _buildSubmitButton(),
+              const SizedBox(height: 16),
             ],
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildTitleField(TextEditingController controller) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Ticket Title *',
-            style: TextStyle(fontWeight: FontWeight.w500)),
-        const SizedBox(height: 8),
-        TextField(
-          controller: controller,
-          decoration: InputDecoration(
-            hintText: 'e.g., Unable to access course materials',
-            fillColor: Colors.white,
-            filled: true,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
-            ),
-            contentPadding:
-            const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-          ),
-        ),
-      ],
     );
   }
 
@@ -387,9 +635,12 @@ class _RaiseSupportTicketModalState extends State<RaiseSupportTicketModal> {
             items: ['Academic', 'Payment', 'Attendance', 'Timetable', 'Other']
                 .map((String category) {
               return DropdownMenuItem<String>(
-                  value: category, child: Text(category));
+                value: category,
+                child: Text(category),
+              );
             }).toList(),
             onChanged: (newValue) {
+              print('📝 [USER_INPUT] Category changed to: $newValue');
               setState(() {
                 _selectedCategory = newValue;
               });
@@ -404,7 +655,32 @@ class _RaiseSupportTicketModalState extends State<RaiseSupportTicketModal> {
     );
   }
 
-  Widget _buildDescriptionField(TextEditingController controller) {
+  Widget _buildTitleField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Ticket Title *',
+            style: TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _titleController,
+          decoration: InputDecoration(
+            hintText: 'e.g., Unable to access course materials',
+            fillColor: Colors.white,
+            filled: true,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+            contentPadding:
+            const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDescriptionField() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -412,7 +688,7 @@ class _RaiseSupportTicketModalState extends State<RaiseSupportTicketModal> {
             style: TextStyle(fontWeight: FontWeight.w500)),
         const SizedBox(height: 8),
         TextField(
-          controller: controller,
+          controller: _detailsController,
           maxLines: 4,
           decoration: InputDecoration(
             hintText: 'Please describe the issue in detail...',
@@ -430,72 +706,9 @@ class _RaiseSupportTicketModalState extends State<RaiseSupportTicketModal> {
     );
   }
 
-  Widget _buildAttachmentSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Attachments (Optional)',
-            style: TextStyle(fontWeight: FontWeight.w500)),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-                child: _buildAttachmentButton(Icons.camera_alt_outlined,
-                    'Camera', () => _pickImage(ImageSource.camera))),
-            const SizedBox(width: 16),
-            Expanded(
-                child: _buildAttachmentButton(Icons.photo_library_outlined,
-                    'Gallery', () => _pickImage(ImageSource.gallery))),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildAttachmentButton(
-      IconData icon, String label, VoidCallback onPressed) {
-    return OutlinedButton.icon(
-      icon: Icon(icon, size: 20),
-      label: Text(label),
-      onPressed: onPressed,
-      style: OutlinedButton.styleFrom(
-        foregroundColor: Colors.grey[700],
-        backgroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        side: BorderSide(color: Colors.grey[300]!),
-      ),
-    );
-  }
-
-  Widget _buildImagePreview() {
-    return Padding(
-      padding: const EdgeInsets.only(top: 16.0),
-      child: Stack(
-        alignment: Alignment.topRight,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 150),
-                child: Image.file(_attachedImage!, fit: BoxFit.cover)),
-          ),
-          InkWell(
-            onTap: () => setState(() => _attachedImage = null),
-            child: const CircleAvatar(
-              radius: 12,
-              backgroundColor: Colors.black54,
-              child: Icon(Icons.close, color: Colors.white, size: 14),
-            ),
-          )
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSubmitButton(bool isLoading, VoidCallback onSubmit) {
+  Widget _buildSubmitButton() {
     return ElevatedButton(
-      onPressed: isLoading ? null : onSubmit,
+      onPressed: _isSubmitting ? null : _submitTicket,
       style: ElevatedButton.styleFrom(
         backgroundColor: Colors.blueAccent,
         minimumSize: const Size(double.infinity, 50),
@@ -504,14 +717,19 @@ class _RaiseSupportTicketModalState extends State<RaiseSupportTicketModal> {
         ),
         disabledBackgroundColor: Colors.grey.shade400,
       ),
-      child: isLoading
+      child: _isSubmitting
           ? const SizedBox(
-          height: 20,
-          width: 20,
-          child: CircularProgressIndicator(
-              strokeWidth: 2, color: Colors.white))
-          : const Text('Submit Grievance', // Renamed
-          style: TextStyle(color: Colors.white, fontSize: 16)),
+        height: 20,
+        width: 20,
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          color: Colors.white,
+        ),
+      )
+          : const Text(
+        'Submit Ticket',
+        style: TextStyle(color: Colors.white, fontSize: 16),
+      ),
     );
   }
 }
