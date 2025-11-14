@@ -14,7 +14,7 @@ class LeaveApiService {
   // --- GET My Leaves ---
   Future<List<LeaveApplication>> getMyLeaves(String authToken) async {
     final Uri url = Uri.parse('$_baseUrl/getMyLeaves');
-    print('GET: $url'); // Debug print
+    print('GET: $url');
 
     try {
       final response = await http.get(
@@ -25,27 +25,42 @@ class LeaveApiService {
         },
       ).timeout(const Duration(seconds: 20));
 
-      print(
-          'Response Status (getMyLeaves): ${response.statusCode}'); // Debug print
-      // print('Response Body (getMyLeaves): ${response.body}'); // Uncomment for detailed debug
+      print('Response Status (getMyLeaves): ${response.statusCode}');
+      print('Response Body (getMyLeaves): ${response.body}');
 
       if (response.statusCode == 200) {
-        final List<dynamic> jsonData = jsonDecode(response.body);
-        final leaves =
-            jsonData.map((json) => LeaveApplication.fromJson(json)).toList();
-        // Sort by start date, newest first (descending)
-        leaves.sort((a, b) => b.startDate.compareTo(a.startDate));
-        return leaves;
+        final decoded = jsonDecode(response.body);
+
+        // Must be a Map containing quotas + history
+        if (decoded is Map<String, dynamic>) {
+          if (!decoded.containsKey('history')) {
+            throw Exception("API response missing 'history' field");
+          }
+
+          final List<dynamic> historyList = decoded['history'];
+
+          final leaves = historyList
+              .map((json) => LeaveApplication.fromJson(json))
+              .toList();
+
+          // Sort newest first
+          leaves.sort((a, b) => b.startDate.compareTo(a.startDate));
+
+          return leaves;
+        }
+
+        throw Exception("Unexpected API format: $decoded");
       } else {
         throw Exception(
             'Failed to load leaves. Status code: ${response.statusCode}');
       }
     } catch (e) {
       print('Error fetching leaves: $e');
-      // Rethrow to allow UI to handle specific error types if needed
       rethrow;
     }
   }
+
+
 
   // --- POST Apply for Leave ---
   Future<LeaveApplication> applyLeave({
