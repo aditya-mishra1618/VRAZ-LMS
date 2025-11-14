@@ -20,7 +20,7 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
   // Services
   final AttendanceService _attendanceService = AttendanceService();
   late TeacherTimetableService
-  _timetableService; // Initialize in initState/fetch
+      _timetableService; // Initialize in initState/fetch
 
   // State
   String? _authToken;
@@ -28,7 +28,7 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
   late DateTime _selectedDate;
   List<TeacherTimetableEntry> _allFetchedSessions = []; // Store weekly sessions
   List<TeacherTimetableEntry> _sessionsForSelectedDay =
-  []; // Filtered for dropdown
+      []; // Filtered for dropdown
   int? _selectedSessionId; // Store the ID (int) of the selected session
   TeacherTimetableEntry? _selectedSessionEntry; // Store the full selected entry
 
@@ -62,7 +62,7 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
       if (mounted) {
         setState(() {
           _errorMessage =
-          "Authentication token not found. Please log in again.";
+              "Authentication token not found. Please log in again.";
           _isLoadingSessions = false;
         });
       }
@@ -157,7 +157,7 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
           _errorMessage = e.toString().replaceAll('Exception: ', '');
           _isLoadingSessions = false;
           _isLoadingAttendance =
-          false; // Ensure attendance loading stops on schedule error
+              false; // Ensure attendance loading stops on schedule error
         });
       }
     }
@@ -255,7 +255,7 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
           // Check if selection changed during fetch error
           setState(() {
             _errorMessage =
-            "Attendance: ${e.toString().replaceAll('Exception: ', '')}";
+                "Attendance: ${e.toString().replaceAll('Exception: ', '')}";
             _isLoadingAttendance = false;
           });
         } else {
@@ -433,7 +433,7 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
       appBar: AppBar(
         title: const Text('Manage Attendance',
             style:
-            TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+                TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
         backgroundColor: const Color(0xFFF0F4F8),
         elevation: 0,
         centerTitle: true,
@@ -465,7 +465,7 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
                       child: Padding(
                           padding: EdgeInsets.all(24.0),
                           child:
-                          Column(mainAxisSize: MainAxisSize.min, children: [
+                              Column(mainAxisSize: MainAxisSize.min, children: [
                             CircularProgressIndicator(),
                             SizedBox(height: 16),
                             Text("Submitting Attendance...")
@@ -545,9 +545,9 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
             hint: const Text("Select a Session"),
             icon: _isLoadingAttendance
                 ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2))
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.keyboard_arrow_down),
             style: const TextStyle(
                 color: Colors.black87,
@@ -556,29 +556,29 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
             onChanged: _isLoadingAttendance || _isSubmitting
                 ? null
                 : (String? newId) {
-              if (newId != null && newId != _selectedSessionEntry?.id) {
-                final newEntry = _sessionsForSelectedDay
-                    .firstWhere((e) => e.id == newId);
-                // --- FIX: Access sessionId from the details map ---
-                final newSessionId =
-                newEntry.details['sessionId'] as int?;
-                print(
-                    "Dropdown changed: New Session ID = $newSessionId, Type = ${newEntry.type}");
-                setState(() {
-                  _selectedSessionEntry = newEntry;
-                  _selectedSessionId = newSessionId;
-                  _students = []; // Clear students when changing session
-                  _errorMessage = null; // Clear previous errors
-                });
-                // --- FIX: Check newSessionId ---
-                if (newEntry.type == 'LECTURE' && newSessionId != null) {
-                  _fetchAttendanceData(newSessionId);
-                } else {
-                  // If not a lecture, ensure loading state is false and students are empty
-                  setState(() => _isLoadingAttendance = false);
-                }
-              }
-            },
+                    if (newId != null && newId != _selectedSessionEntry?.id) {
+                      final newEntry = _sessionsForSelectedDay
+                          .firstWhere((e) => e.id == newId);
+                      // --- FIX: Access sessionId from the details map ---
+                      final newSessionId =
+                          newEntry.details['sessionId'] as int?;
+                      print(
+                          "Dropdown changed: New Session ID = $newSessionId, Type = ${newEntry.type}");
+                      setState(() {
+                        _selectedSessionEntry = newEntry;
+                        _selectedSessionId = newSessionId;
+                        _students = []; // Clear students when changing session
+                        _errorMessage = null; // Clear previous errors
+                      });
+                      // --- FIX: Check newSessionId ---
+                      if (newEntry.type == 'LECTURE' && newSessionId != null) {
+                        _fetchAttendanceData(newSessionId);
+                      } else {
+                        // If not a lecture, ensure loading state is false and students are empty
+                        setState(() => _isLoadingAttendance = false);
+                      }
+                    }
+                  },
             items: _sessionsForSelectedDay
                 .map<DropdownMenuItem<String?>>((TeacherTimetableEntry entry) {
               // Display only the session title
@@ -738,7 +738,7 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
             // --- MODIFICATION: Wrapped Center/Text with InkWell ---
             child: InkWell(
               onTap:
-              _isLoadingSessions || _isSubmitting ? null : _showDatePicker,
+                  _isLoadingSessions || _isSubmitting ? null : _showDatePicker,
               child: Center(
                 child: Text(displayDate,
                     style: const TextStyle(
@@ -805,16 +805,16 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
       child: OutlinedButton(
         // Disable if not a lecture or loading/submitting/no students
         onPressed: _selectedSessionEntry?.type != 'LECTURE' ||
-            _isLoadingAttendance ||
-            _isSubmitting ||
-            _students.isEmpty
+                _isLoadingAttendance ||
+                _isSubmitting ||
+                _students.isEmpty
             ? null
             : _markAllPresent,
         style: OutlinedButton.styleFrom(
           backgroundColor: Colors.white,
           padding: const EdgeInsets.symmetric(vertical: 15),
           shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           side: BorderSide(color: Colors.blue.shade200),
         ),
         child: const Text('Mark All Present',
@@ -878,7 +878,7 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
     final bool isSelected = student.status == status;
     return GestureDetector(
       onTap:
-      _isSubmitting ? null : () => _updateAttendanceStatus(student, status),
+          _isSubmitting ? null : () => _updateAttendanceStatus(student, status),
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 4),
         width: 35,
@@ -912,10 +912,10 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
       ),
       child: ElevatedButton.icon(
         onPressed: !canSave ||
-            _isLoadingSessions ||
-            _isLoadingAttendance ||
-            _isSubmitting ||
-            _students.isEmpty
+                _isLoadingSessions ||
+                _isLoadingAttendance ||
+                _isSubmitting ||
+                _students.isEmpty
             ? null
             : _saveAttendance,
         icon: const Icon(Icons.check_circle_outline, color: Colors.white),
@@ -925,7 +925,7 @@ class _ManageAttendanceScreenState extends State<ManageAttendanceScreen> {
             backgroundColor: Colors.blueAccent,
             minimumSize: const Size(double.infinity, 50),
             shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             disabledBackgroundColor: Colors.grey.shade400),
       ),
     );
