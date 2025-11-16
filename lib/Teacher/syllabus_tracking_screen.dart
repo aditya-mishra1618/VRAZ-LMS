@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:http/http.dart' as http;
 
 // Import necessary files (adjust paths as needed)
 import '../teacher_session_manager.dart'; // To get auth token
@@ -12,7 +15,41 @@ import 'teacher_app_drawer.dart';
 
 // Special constant/object for the 'Other' subtopic option
 final SubTopic _otherSubtopicOption =
-    SubTopic(id: -1, name: 'Other (Enter Manually)...');
+SubTopic(id: -1, name: 'Other (Enter Manually)...');
+
+// NEW: Model for session remark (based on API response you shared)
+class SessionRemark {
+  final int id;
+  final int sessionId;
+  final int topicId;
+  final String remark;
+  final String topicName;
+  final String teacherName;
+
+  SessionRemark({
+    required this.id,
+    required this.sessionId,
+    required this.topicId,
+    required this.remark,
+    required this.topicName,
+    required this.teacherName,
+  });
+
+  factory SessionRemark.fromJson(Map<String, dynamic> json) {
+    return SessionRemark(
+      id: json['id'],
+      sessionId: json['sessionId'],
+      topicId: json['topicId'],
+      remark: json['remark'] ?? '',
+      topicName: (json['topic'] != null && json['topic']['name'] != null)
+          ? json['topic']['name']
+          : 'Unknown Topic',
+      teacherName: (json['teacher'] != null && json['teacher']['fullName'] != null)
+          ? json['teacher']['fullName']
+          : 'Unknown',
+    );
+  }
+}
 
 class SyllabusTrackingScreen extends StatefulWidget {
   const SyllabusTrackingScreen({super.key});
@@ -34,6 +71,9 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
   TeacherTimetableEntry? _selectedSessionEntry;
   DateTime? _currentFetchedWeekStart;
 
+  // Track which subject's topics we've fetched most recently to avoid duplicate calls
+  int? _currentFetchedSubjectId;
+
   // State - Subject, Topic, SubTopic
   String _subjectName = ''; // To display subject
   List<Topic> _topicsForSubject = [];
@@ -44,7 +84,7 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
 
   // Text Controllers
   final TextEditingController _manualSubTopicController =
-      TextEditingController();
+  TextEditingController();
   final TextEditingController _descriptionController = TextEditingController();
 
   // Loading and Error States
@@ -52,6 +92,10 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
   bool _isLoadingTopics = false;
   bool _isSubmitting = false;
   String? _errorMessage;
+
+  // REMARKS: latest remark list & loading
+  List<SessionRemark> _sessionRemarks = [];
+  bool _isLoadingRemarks = false;
 
   // Global Key for the Scaffold
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
@@ -96,20 +140,16 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
 
     // Avoid refetching if we already have data for this week
     if (weekDates.$1 == _currentFetchedWeekStart && !isInitialFetch) {
+      // We already have the week - just filter and return.
       _filterSessionsForDate(_selectedDate);
       return;
     }
 
-    // --- FIX: Only set loading true on the *initial* fetch ---
-    // Subsequent fetches are handled by _onDateChanged
-    if (isInitialFetch) {
-      setState(() {
-        _isLoadingSessions = true;
-        _errorMessage = null;
-        _clearSyllabusFields();
-      });
-    }
-    // --- END FIX ---
+    setState(() {
+      _isLoadingSessions = true;
+      _errorMessage = null;
+      _clearSyllabusFields();
+    });
 
     try {
       final startDateStr = DateFormat('yyyy-MM-dd').format(weekDates.$1);
@@ -118,20 +158,15 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
           startDate: startDateStr, endDate: endDateStr);
       _currentFetchedWeekStart = weekDates.$1;
 
+      // --- **MODIFIED LOGIC: Set initial date ONLY on first fetch** ---
+      // We intentionally do not overwrite _selectedDate when performing the
+      // initial week fetch. _selectedDate remains DateTime.now() unless the
+      // user changes it explicitly.
+      // --- **END MODIFIED LOGIC** ---
+
       _filterSessionsForDate(_selectedDate);
 
-      // Auto-select first session ONLY on initial load
-      if (isInitialFetch && _selectedSessionEntry != null) {
-        final currentSubjectId = _selectedSessionEntry?.details['subjectId'];
-        if (currentSubjectId is int) {
-          _fetchSubjectNameAndTopics(currentSubjectId);
-        }
-      }
-
-      if (mounted)
-        setState(() {
-          _isLoadingSessions = false;
-        });
+      if (mounted) setState(() => _isLoadingSessions = false);
     } catch (e) {
       _handleError(e.toString());
     }
@@ -156,10 +191,15 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
     }).toList();
     filtered.sort((a, b) => a.startTime.compareTo(b.startTime));
 
+    // Remember the previously selected session id (if any) so we can retain
+    // selection when possible
+    final previouslySelectedId = _selectedSessionEntry?.id;
+
     setState(() {
       _sessionsForSelectedDay = filtered;
-      bool retainSelection = _selectedSessionEntry != null &&
-          filtered.any((s) => s.id == _selectedSessionEntry!.id);
+
+      bool retainSelection = previouslySelectedId != null &&
+          filtered.any((s) => s.id == previouslySelectedId);
 
       TeacherTimetableEntry? newSelectedEntry = _selectedSessionEntry;
       if (!retainSelection) {
@@ -171,11 +211,21 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
       final currentSubjectId = _selectedSessionEntry?.details['subjectId'];
 
       if (_selectedSessionEntry != null && currentSubjectId is int) {
+        // Only fetch topics if we don't already have them for this subject
         if (!retainSelection ||
             _topicsForSubject.isEmpty ||
             (_topicsForSubject.isNotEmpty &&
-                _topicsForSubject.first.subjectId != currentSubjectId)) {
+                _currentFetchedSubjectId != currentSubjectId)) {
           _fetchSubjectNameAndTopics(currentSubjectId);
+        }
+
+        // fetch remarks for this sessionId (if available)
+        final sid = _selectedSessionEntry?.details['sessionId'];
+        if (sid != null) {
+          _fetchSessionRemarks(sid);
+        } else {
+          // clear remarks if none
+          _sessionRemarks = [];
         }
       } else {
         _subjectName = '';
@@ -185,12 +235,23 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
         _selectedSubTopic = null;
         _showManualSubtopic = false;
         _isLoadingTopics = false;
+        _sessionRemarks = [];
       }
+
+      // IMPORTANT: Stop the sessions loading indicator after filtering
+      _isLoadingSessions = false;
     });
   }
 
   Future<void> _fetchSubjectNameAndTopics(int subjectId) async {
     if (_authToken == null) return;
+
+    // Prevent duplicate API calls for the same subject while a fetch is ongoing
+    if (_isLoadingTopics && _currentFetchedSubjectId == subjectId) {
+      print('[Syllabus] Skipping duplicate topics fetch for $subjectId');
+      return;
+    }
+
     setState(() {
       _isLoadingTopics = true;
       _errorMessage = null;
@@ -200,13 +261,14 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
       _selectedSubTopic = null;
       _showManualSubtopic = false;
       _subjectName = 'Loading...';
+      _currentFetchedSubjectId = subjectId;
     });
 
     try {
       final subjectName =
-          await _syllabusService.getSubjectNameById(subjectId, _authToken!);
+      await _syllabusService.getSubjectNameById(subjectId, _authToken!);
       final topics =
-          await _syllabusService.getTopicsForSubject(subjectId, _authToken!);
+      await _syllabusService.getTopicsForSubject(subjectId, _authToken!);
       if (mounted) {
         setState(() {
           _subjectName = subjectName;
@@ -220,45 +282,33 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
         setState(() {
           _isLoadingTopics = false;
           _subjectName = 'Error';
+          // Reset current fetched subject so next attempt will retry
+          _currentFetchedSubjectId = null;
         });
     }
   }
 
   // --- REFACTORED DATE CHANGE LOGIC ---
   Future<void> _onDateChanged(DateTime newDate) async {
-    // 1. Set the new date and clear old data immediately
     setState(() {
       _selectedDate = newDate;
       _clearSyllabusFields();
       _errorMessage = null;
       _sessionsForSelectedDay = [];
-      // --- FIX: DO NOT set _isLoadingSessions = true here ---
+      _isLoadingSessions = true;
       _isLoadingTopics = false;
     });
 
     final newWeekStartDate = _getWeekStartAndEnd(newDate).$1;
-
-    // 2. Check if we need to fetch new data
     if (newWeekStartDate != _currentFetchedWeekStart ||
         _currentFetchedWeekStart == null) {
-      // --- FIX: Set loading to true ONLY when fetching a new week ---
-      setState(() {
-        _isLoadingSessions = true;
-      });
-      // This is the "slow" path (network call)
       await _fetchScheduleForWeek(newDate, isInitialFetch: false);
     } else {
-      // --- FIX: This is the "fast" path (same week) ---
-      // Instantly filter data. No full-screen loader.
-      _filterSessionsForDate(newDate); // This is a local (fast) operation
-
-      // We still need to fetch topics for the (potentially) new session
+      _filterSessionsForDate(newDate);
       final currentSubjectId = _selectedSessionEntry?.details['subjectId'];
       if (_selectedSessionEntry != null && currentSubjectId is int) {
-        // This will set its own _isLoadingTopics = true
         await _fetchSubjectNameAndTopics(currentSubjectId);
       } else {
-        // Ensure loading is false if no data is being fetched
         if (mounted) setState(() => _isLoadingSessions = false);
       }
     }
@@ -292,8 +342,7 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
       return;
     }
     // --- FIX: Access sessionId from the details map ---
-    final currentSessionId =
-        _selectedSessionEntry?.details['sessionId'] as int?;
+    final currentSessionId = _selectedSessionEntry?.details['sessionId'] as int?;
     if (_selectedSessionEntry == null || currentSessionId == null) {
       _showSnackbar("Please select a valid lecture session.", isError: true);
       return;
@@ -321,7 +370,7 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
         _manualSubTopicController.text.trim().isNotEmpty) {
       topicIdToSend = _selectedTopic!.id;
       finalRemark =
-          "Sub-Topic: ${_manualSubTopicController.text.trim()}\nDetails: $finalRemark";
+      "Sub-Topic: ${_manualSubTopicController.text.trim()}\nDetails: $finalRemark";
     } else {
       topicIdToSend = _selectedTopic!.id;
     }
@@ -338,6 +387,10 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
       if (mounted) {
         _showSnackbar(message);
         _clearSyllabusFields(clearSession: false, clearSubject: false);
+
+        // After saving remark, re-fetch remarks to show the new entry
+        final sid = currentSessionId;
+        _fetchSessionRemarks(sid);
       }
     } catch (e) {
       _showSnackbar(
@@ -358,8 +411,7 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
     return (monday, sunday); // Explicitly return tuple
   }
 
-  void _clearSyllabusFields(
-      {bool clearSession = true, bool clearSubject = true}) {
+  void _clearSyllabusFields({bool clearSession = true, bool clearSubject = true}) {
     if (clearSession) _selectedSessionEntry = null;
     if (clearSubject) {
       _subjectName = '';
@@ -395,6 +447,82 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
     }
   }
 
+  // --- REMARKS: Fetch function ---
+  Future<void> _fetchSessionRemarks(int sessionId) async {
+    if (_authToken == null) {
+      print("❌ [Remarks] authToken is NULL → Cannot fetch remarks");
+      return;
+    }
+
+    print("--------------------------------------------------");
+    print("📘 [Remarks] Fetching remarks for sessionId: $sessionId");
+    print("🔗 URL: https://vraz-backend-api.onrender.com/api/teachers/remarks/session/$sessionId");
+    print("--------------------------------------------------");
+
+    setState(() {
+      _isLoadingRemarks = true;
+    });
+
+    final Uri url = Uri.parse(
+        'https://vraz-backend-api.onrender.com/api/teachers/remarks/session/$sessionId');
+
+    try {
+      final response = await http.get(
+        url,
+        headers: {
+          'Authorization': 'Bearer $_authToken',
+          'Content-Type': 'application/json',
+        },
+      ).timeout(const Duration(seconds: 20));
+
+      print("📥 [Remarks] Status: ${response.statusCode}");
+      print("📥 [Remarks] Raw Response: ${response.body}");
+
+      if (response.statusCode == 200) {
+        final List<dynamic> jsonList = jsonDecode(response.body);
+
+        print("📊 [Remarks] Total remarks received: ${jsonList.length}");
+
+        final remarks = jsonList
+            .map((e) => SessionRemark.fromJson(e))
+            .toList(growable: false);
+
+        // Sort newest first (fallback based on ID)
+        remarks.sort((a, b) => b.id.compareTo(a.id));
+
+        print("✅ [Remarks] Sorted & processed remarks (Latest ID: ${remarks.isNotEmpty ? remarks.first.id : 'None'})");
+
+        if (mounted) {
+          setState(() {
+            _sessionRemarks = remarks;
+            _isLoadingRemarks = false;
+          });
+        }
+      } else {
+        print("❌ [Remarks] Non-200 status. Clearing remarks list.");
+
+        if (mounted) {
+          setState(() {
+            _sessionRemarks = [];
+            _isLoadingRemarks = false;
+          });
+        }
+      }
+    } catch (e) {
+      print("🔥 [Remarks] Exception occurred: $e");
+      if (mounted) {
+        setState(() {
+          _sessionRemarks = [];
+          _isLoadingRemarks = false;
+        });
+      }
+    }
+
+    print("📘 [Remarks] Done Fetching.");
+    print("--------------------------------------------------");
+  }
+
+
   // --- UI Building ---
   @override
   Widget build(BuildContext context) {
@@ -416,39 +544,46 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
       backgroundColor: Colors.grey[50],
       drawer: const TeacherAppDrawer(),
       appBar: AppBar(
-        // Use key to open drawer if needed, though default back button works too
-        // leading: IconButton(icon: Icon(Icons.menu), onPressed: () => _scaffoldKey.currentState?.openDrawer()),
-        surfaceTintColor: Colors.white, backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        backgroundColor: Colors.white,
         elevation: 1,
         title: const Text('Syllabus Tracking',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
         centerTitle: true,
       ),
       body: SingleChildScrollView(
-        // FIX: Added padding here
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildSessionDropdown(), const SizedBox(height: 16),
-            _buildDateSelector(), const SizedBox(height: 24),
+            _buildSessionDropdown(),
+            const SizedBox(height: 16),
+            _buildDateSelector(),
+            const SizedBox(height: 24),
+
+            // --- REMARKS CARD (latest remark) ---
+            _isLoadingRemarks
+                ? const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Center(child: CircularProgressIndicator()),
+            )
+                : _buildRemarksCard(),
+            const SizedBox(height: 16),
+
             const Text("Syllabus Entry",
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
             _buildDisplayField(label: 'Subject', value: _subjectName),
             const SizedBox(height: 16),
-            _buildTopicDropdown(), const SizedBox(height: 16),
-            if (_selectedTopic != null &&
-                _selectedTopic!.subTopics.isNotEmpty) ...[
+            _buildTopicDropdown(),
+            const SizedBox(height: 16),
+            if (_selectedTopic != null && _selectedTopic!.subTopics.isNotEmpty) ...[
               _buildSubTopicDropdown(),
               const SizedBox(height: 16),
             ],
-            // --- FIX for Line 278 errors (Corrected Call) ---
             if (_showManualSubtopic ||
-                (_selectedTopic != null &&
-                    _selectedTopic!.subTopics.isEmpty)) ...[
+                (_selectedTopic != null && _selectedTopic!.subTopics.isEmpty)) ...[
               _buildTextField(
-                  // USE NAMED PARAMETERS
                   label: 'Enter Sub-Topic Taught *',
                   hint: 'Specify sub-topic name...',
                   controller: _manualSubTopicController,
@@ -456,15 +591,13 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
                   isRequired: true),
               const SizedBox(height: 16),
             ],
-            // --- FIX for Line 281 errors (Corrected Call) ---
             _buildTextField(
-                // USE NAMED PARAMETERS
                 label: 'Description / Details *',
                 hint: 'Describe what was taught in detail...',
                 controller: _descriptionController,
                 maxLines: 4,
                 isRequired: true),
-            const SizedBox(height: 20), // Spacer before bottom bar is rendered
+            const SizedBox(height: 20),
           ],
         ),
       ),
@@ -479,11 +612,11 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
               : _saveSyllabus,
           icon: _isSubmitting
               ? Container(
-                  width: 20,
-                  height: 20,
-                  padding: const EdgeInsets.all(2.0),
-                  child: const CircularProgressIndicator(
-                      color: Colors.white, strokeWidth: 3))
+              width: 20,
+              height: 20,
+              padding: const EdgeInsets.all(2.0),
+              child: const CircularProgressIndicator(
+                  color: Colors.white, strokeWidth: 3))
               : const Icon(Icons.save_alt_rounded, color: Colors.white),
           label: Text(_isSubmitting ? 'Saving...' : 'Save Syllabus Entry',
               style: const TextStyle(color: Colors.white, fontSize: 16)),
@@ -499,6 +632,63 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
   }
 
   // --- WIDGET BUILDERS ---
+
+  Widget _buildRemarksCard() {
+    // show latest remark only (or message when none)
+    if (_sessionRemarks.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.shade300),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.info_outline, color: Colors.grey.shade600),
+            const SizedBox(width: 10),
+            const Expanded(
+                child: Text('No remarks for this session yet.',
+                    style: TextStyle(color: Colors.grey))),
+          ],
+        ),
+      );
+    }
+
+    final latest = _sessionRemarks.first;
+
+    return Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(14.0),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Text('Latest Remark',
+                  style: TextStyle(
+                      color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+            ),
+            const Spacer(),
+            Text('By ${latest.teacherName}',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+          ]),
+          const SizedBox(height: 10),
+          Text(latest.topicName,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const SizedBox(height: 6),
+          Text(latest.remark,
+              style: const TextStyle(color: Colors.black87, fontSize: 14)),
+        ]),
+      ),
+    );
+  }
 
   Widget _buildDateSelector() {
     return Container(
@@ -524,16 +714,17 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
             ),
           ),
         ),
-        // --- THIS IS THE FIX ---
+        // --- END MODIFICATION ---
         IconButton(
             icon: const Icon(Icons.chevron_right),
-            // The check for DateUtils.isSameDay has been removed
-            onPressed: _isLoadingSessions || _isSubmitting
+            onPressed: _isLoadingSessions ||
+                _isSubmitting ||
+                DateUtils.isSameDay(_selectedDate, DateTime.now())
                 ? null
                 : () => _changeDate(1),
-            color: null // The color check is also removed
-            ),
-        // --- END FIX ---
+            color: DateUtils.isSameDay(_selectedDate, DateTime.now())
+                ? Colors.grey
+                : null),
       ]),
     );
   }
@@ -559,7 +750,7 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Colors.red.shade200)),
               child:
-                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                 Expanded(
                     child: Text("Error: $_errorMessage",
                         style: const TextStyle(color: Colors.red),
@@ -591,29 +782,38 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
       onChanged: _isSubmitting
           ? null
           : (String? newId) {
-              if (newId != null && newId != _selectedSessionEntry?.id) {
-                final newEntry =
-                    _sessionsForSelectedDay.firstWhere((e) => e.id == newId);
-                // --- FIX: Access sessionId from the details map ---
-                final newSubjectId =
-                    newEntry.details['subjectId']; // Access directly
-                print(
-                    "Session changed: ID=${newEntry.details['sessionId']}, SubjectID=$newSubjectId");
-                setState(() {
-                  _selectedSessionEntry = newEntry;
-                  _clearSyllabusFields(clearSession: false);
-                });
-                if (newSubjectId is int) {
-                  _fetchSubjectNameAndTopics(newSubjectId);
-                } else {
-                  setState(() {
-                    _subjectName = 'N/A';
-                    _topicsForSubject = [];
-                    _isLoadingTopics = false;
-                  });
-                }
-              }
-            },
+        if (newId != null && newId != _selectedSessionEntry?.id) {
+          final newEntry =
+          _sessionsForSelectedDay.firstWhere((e) => e.id == newId);
+          // --- FIX: Access sessionId from the details map ---
+          final newSubjectId = newEntry.details['subjectId']; // Access directly
+          print(
+              "Session changed: ID=${newEntry.details['sessionId']}, SubjectID=$newSubjectId");
+          setState(() {
+            _selectedSessionEntry = newEntry;
+            _clearSyllabusFields(clearSession: false);
+          });
+          if (newSubjectId is int) {
+            _fetchSubjectNameAndTopics(newSubjectId);
+          } else {
+            setState(() {
+              _subjectName = 'N/A';
+              _topicsForSubject = [];
+              _isLoadingTopics = false;
+            });
+          }
+
+          // NEW: fetch remarks for selected sessionId
+          final sid = newEntry.details['sessionId'];
+          if (sid != null) {
+            _fetchSessionRemarks(sid);
+          } else {
+            setState(() {
+              _sessionRemarks = [];
+            });
+          }
+        }
+      },
       items: _sessionsForSelectedDay.map<DropdownMenuItem<String?>>((entry) {
         final String displayTitle = entry.title;
         // --- FIX: Access sessionId from the details map ---
@@ -628,7 +828,7 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
               style: TextStyle(
                   fontSize: 16,
                   color:
-                      isValidLecture ? Colors.black87 : Colors.grey.shade400)),
+                  isValidLecture ? Colors.black87 : Colors.grey.shade400)),
         );
       }).toList(),
       validator: (value) => value == null ? 'Please select a session' : null,
@@ -665,32 +865,32 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
         isExpanded: true,
         decoration: _inputDecoration(),
         onChanged: _isLoadingTopics ||
-                _selectedSessionEntry == null ||
-                _subjectName.isEmpty ||
-                _subjectName == 'Error' ||
-                _subjectName == 'N/A' ||
-                _isSubmitting
+            _selectedSessionEntry == null ||
+            _subjectName.isEmpty ||
+            _subjectName == 'Error' ||
+            _subjectName == 'N/A' ||
+            _isSubmitting
             ? null
             : (Topic? newValue) {
-                setState(() {
-                  _selectedTopic = newValue;
-                  _selectedSubTopic = null;
-                  _manualSubTopicController.clear();
-                  _showManualSubtopic = false;
-                  if (newValue != null && newValue.subTopics.isNotEmpty) {
-                    _subTopicsForSelectedTopic = newValue.subTopics;
-                  } else {
-                    _subTopicsForSelectedTopic = [];
-                    _showManualSubtopic = newValue != null;
-                  }
-                });
-              },
+          setState(() {
+            _selectedTopic = newValue;
+            _selectedSubTopic = null;
+            _manualSubTopicController.clear();
+            _showManualSubtopic = false;
+            if (newValue != null && newValue.subTopics.isNotEmpty) {
+              _subTopicsForSelectedTopic = newValue.subTopics;
+            } else {
+              _subTopicsForSelectedTopic = [];
+              _showManualSubtopic = newValue != null;
+            }
+          });
+        },
         items: _topicsForSubject
             .map<DropdownMenuItem<Topic>>((Topic topic) =>
-                DropdownMenuItem<Topic>(
-                    value: topic,
-                    child:
-                        Text(topic.name, style: const TextStyle(fontSize: 16))))
+            DropdownMenuItem<Topic>(
+                value: topic,
+                child:
+                Text(topic.name, style: const TextStyle(fontSize: 16))))
             .toList(),
         validator: (value) => value == null ? 'Please select a topic' : null,
       ),
@@ -718,16 +918,16 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
         onChanged: _isSubmitting
             ? null
             : (SubTopic? newValue) {
-                setState(() {
-                  _selectedSubTopic = newValue;
-                  _showManualSubtopic = newValue == _otherSubtopicOption;
-                  if (!_showManualSubtopic) {
-                    _manualSubTopicController.clear();
-                  }
-                });
-              },
+          setState(() {
+            _selectedSubTopic = newValue;
+            _showManualSubtopic = newValue == _otherSubtopicOption;
+            if (!_showManualSubtopic) {
+              _manualSubTopicController.clear();
+            }
+          });
+        },
         items:
-            itemsWithOther.map<DropdownMenuItem<SubTopic>>((SubTopic subTopic) {
+        itemsWithOther.map<DropdownMenuItem<SubTopic>>((SubTopic subTopic) {
           return DropdownMenuItem<SubTopic>(
             value: subTopic,
             child: Text(subTopic.name,
@@ -745,12 +945,13 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
     ]);
   }
 
-  Widget _buildTextField(
-      {required String label,
-      required String hint,
-      required TextEditingController controller,
-      int maxLines = 1,
-      bool isRequired = false}) {
+  Widget _buildTextField({
+    required String label,
+    required String hint,
+    required TextEditingController controller,
+    int maxLines = 1,
+    bool isRequired = false,
+  }) {
     String displayLabel = isRequired ? '$label *' : label;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(displayLabel, style: const TextStyle(fontWeight: FontWeight.w500)),
@@ -762,8 +963,8 @@ class _SyllabusTrackingScreenState extends State<SyllabusTrackingScreen> {
         decoration: _inputDecoration(hint: hint),
         validator: isRequired
             ? (value) => (value == null || value.trim().isEmpty)
-                ? 'Please enter ${label.replaceAll(' *', '')}'
-                : null
+            ? 'Please enter ${label.replaceAll(' *', '')}'
+            : null
             : null,
       ),
     ]);

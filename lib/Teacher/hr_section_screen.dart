@@ -25,7 +25,7 @@ class _HRSectionScreenState extends State<HRSectionScreen> {
   String? _authToken; // Store the token
   int _sickLeavesTaken = 0;
   int _casualLeavesTaken = 0;
-  int _unpaidLeavesTaken = 0; // Counts APPROVED leaves deducted as UNPAID
+  int _unpaidLeavesTaken = 0;
   final int _totalSickLeaves = 10; // Fixed quota
   final int _totalCasualLeaves = 10; // Fixed quota
   final int _totalUnpaidLeaves = 0; // No quota for unpaid
@@ -120,7 +120,10 @@ class _HRSectionScreenState extends State<HRSectionScreen> {
     }
   }
 
-  // Calculate leave balance from fetched data - Returns a record for clarity
+  // ---
+  // --- UPDATED CALCULATION LOGIC (FIXED) ---
+  // ---
+  // This logic is already correct as per previous discussions for counting.
   ({int sick, int casual, int unpaid}) _calculateLeaveBalance(
       List<LeaveApplication> leaves) {
     int sickTaken = 0;
@@ -128,30 +131,59 @@ class _HRSectionScreenState extends State<HRSectionScreen> {
     int unpaidTaken = 0;
 
     for (var leave in leaves) {
-      // Only count APPROVED leaves towards balance
-      if (leave.status == 'APPROVED') {
-        // --- THIS IS THE FIX ---
-        // We now count 1 for each application, instead of counting the days.
-        // int duration = leave.endDate.difference(leave.startDate).inDays + 1;
-        // if (duration < 1) duration = 1; // Ensure minimum 1 day
+      String status = leave.status.toUpperCase();
+      String deductedAs = leave.deductedAs.toUpperCase();
+      String leaveType = leave.leaveType.toUpperCase();
 
-        // Categorize based on deductedAs
-        switch (leave.deductedAs.toUpperCase()) {
-          // Use uppercase for safety
+      // Rule 1: PENDING leaves are counted by their 'leaveType'.
+      // This is the most important rule for real-time updates.
+      if (status == 'PENDING') {
+        switch (leaveType) {
           case 'SICK':
-            sickTaken += 1; // Was: sickTaken += duration;
+            sickTaken += 1;
             break;
           case 'CASUAL':
-            casualTaken += 1; // Was: casualTaken += duration;
+            casualTaken += 1;
             break;
           case 'UNPAID':
-            unpaidTaken += 1; // Was: unpaidTaken += duration;
-            break;
-          default:
-            print(
-                "Approved leave ID ${leave.id} has unexpected/missing deductedAs: ${leave.deductedAs}");
+            unpaidTaken += 1;
             break;
         }
+      }
+      // Rule 2: APPROVED leaves are counted by their *final* 'deductedAs' field.
+      else if (status == 'APPROVED') {
+        switch (deductedAs) {
+          case 'SICK':
+            sickTaken += 1;
+            break;
+          case 'CASUAL':
+            casualTaken += 1;
+            break;
+          case 'UNPAID':
+            unpaidTaken += 1;
+            break;
+          default:
+            // Fallback for APPROVED leaves with no 'deductedAs'
+            // (e.g., if admin forgets to set it)
+            switch (leaveType) {
+              case 'SICK':
+                sickTaken += 1;
+                break;
+              case 'CASUAL':
+                casualTaken += 1;
+                break;
+              case 'UNPAID':
+                unpaidTaken += 1;
+                break;
+            }
+        }
+      }
+      // Rule 3: REJECTED (Declined) leaves are ONLY counted if 'deductedAs' is 'UNPAID'.
+      else if (status == 'REJECTED') {
+        if (deductedAs == 'UNPAID') {
+          unpaidTaken += 1;
+        }
+        // Otherwise, rejected leaves are ignored (do nothing).
       }
     }
     print(
@@ -159,6 +191,9 @@ class _HRSectionScreenState extends State<HRSectionScreen> {
     // Return the calculated values
     return (sick: sickTaken, casual: casualTaken, unpaid: unpaidTaken);
   }
+  // ---
+  // --- END OF UPDATED CALCULATION ---
+  // ---
 
   // Show Apply Leave Modal
   void _showApplyLeaveModal() {
@@ -218,27 +253,29 @@ class _HRSectionScreenState extends State<HRSectionScreen> {
       return;
     }
 
-    // --- Check Deletion Eligibility ---
+    // --- UPDATED DELETE LOGIC ---
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final leaveEndDate = DateTime(leaveToDelete.endDate.year,
         leaveToDelete.endDate.month, leaveToDelete.endDate.day);
     final bool isPastLeave = leaveEndDate.isBefore(today);
-    final bool canDelete = !isPastLeave &&
-        (leaveToDelete.status == 'PENDING' ||
-            (leaveToDelete.status == 'APPROVED' &&
-                leaveToDelete.deductedAs.toUpperCase() == 'UNPAID'));
+
+    final bool isUnpaid = leaveToDelete.deductedAs.toUpperCase() == 'UNPAID';
+    final bool isPending = leaveToDelete.status == 'PENDING';
+
+    // Can delete if it's not a past leave AND (it's pending OR it's unpaid)
+    final bool canDelete = !isPastLeave && (isPending || isUnpaid);
 
     if (!canDelete) {
       String reason = isPastLeave
           ? "Cannot delete past leave applications."
-          : "Cannot delete approved leaves deducted from Sick/Casual quota.";
+          : "Cannot delete this leave. Only PENDING or UNPAID leaves can be deleted.";
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(reason), backgroundColor: Colors.orange));
       return;
     }
-    // --- End Check ---
+    // --- END UPDATED DELETE LOGIC ---
 
     bool? confirm = await showDialog<bool>(
         context: context,
@@ -464,36 +501,57 @@ class _HRSectionScreenState extends State<HRSectionScreen> {
     );
   }
 
-  // Updated Leave Indicator Widget
+  // ---
+  // --- UPDATED LEAVE INDICATOR WIDGET (UI FIX) ---
+  // ---
+  // This is already using simple circles as per your request
   Widget _buildLeaveIndicator(String label, int value, int total, Color color) {
-    // **FIX for Unpaid Loader:** Explicitly set progress value, even if 0
-    double progress = total > 0 ? (value / total) : 0.0;
-    String availableText = total > 0
-        ? 'Available: ${total - value}'
-        : ''; // Calculate available if quota exists
+    String availableText =
+        total > 0 ? 'Available: ${total - value}' : ''; // Calculate available
+    String displayText;
+
+    Widget indicatorWidget;
+
+    if (total > 0) {
+      // Logic for SICK and CASUAL (shows a fraction)
+      displayText = '$value/$total';
+      indicatorWidget = Container(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: color.withOpacity(0.1),
+          border: Border.all(color: color.withOpacity(0.3), width: 7),
+        ),
+        child: Center(
+            child: Text(
+          displayText,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+              fontSize: 16, fontWeight: FontWeight.bold, color: color),
+        )),
+      );
+    } else {
+      // Logic for UNPAID (shows just a number)
+      displayText = '$value';
+      indicatorWidget = Container(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: color.withOpacity(0.1),
+          border: Border.all(color: color.withOpacity(0.3), width: 7),
+        ),
+        child: Center(
+            child: Text(
+          displayText, // Just show the value
+          textAlign: TextAlign.center,
+          style: TextStyle(
+              fontSize: 20, fontWeight: FontWeight.bold, color: color),
+        )),
+      );
+    }
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        SizedBox(
-            height: 80,
-            width: 80,
-            child: Stack(fit: StackFit.expand, children: [
-              CircularProgressIndicator(
-                value: progress, // Use calculated progress (0.0 if total is 0)
-                strokeWidth: 7,
-                backgroundColor: color.withOpacity(0.2),
-                valueColor: AlwaysStoppedAnimation<Color>(color),
-              ),
-              Center(
-                  child: Text(
-                      total > 0
-                          ? '$value/$total'
-                          : '$value', // Show fraction or just value
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.bold))),
-            ])),
+        SizedBox(height: 80, width: 80, child: indicatorWidget),
         const SizedBox(height: 8),
         Text(label,
             textAlign: TextAlign.center,
@@ -866,17 +924,30 @@ class LeaveDetailsDialog extends StatelessWidget {
         statusColor = Colors.orange; // PENDING
     }
 
-    // --- Deletion Logic ---
+    // --- UPDATED DELETE LOGIC (no change, already correct) ---
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final leaveEndDate = DateTime(application.endDate.year,
         application.endDate.month, application.endDate.day);
     final bool isPastLeave = leaveEndDate.isBefore(today);
-    final bool canDelete = !isPastLeave &&
-        (application.status == 'PENDING' ||
-            (application.status == 'APPROVED' &&
-                application.deductedAs.toUpperCase() == 'UNPAID'));
-    // --- END Deletion Logic ---
+
+    final bool isUnpaid = application.deductedAs.toUpperCase() == 'UNPAID';
+    final bool isPending = application.status == 'PENDING';
+
+    final bool canDelete = !isPastLeave && (isPending || isUnpaid);
+    // --- END UPDATED DELETE LOGIC ---
+
+    // --- DIALOG DISPLAY LOGIC FOR "Deducted As" (UI FIX) ---
+    String deductedAsText;
+    if (application.status.toUpperCase() == 'PENDING') {
+      // If PENDING, show the raw leaveType (e.g., "SICK", "CASUAL")
+      deductedAsText = application.leaveType.toUpperCase();
+    } else {
+      // If APPROVED or REJECTED, show the 'deductedAs' field (e.g., "SICK", "UNPAID")
+      deductedAsText =
+          application.deductedAs.isNotEmpty ? application.deductedAs : 'N/A';
+    }
+    // --- END DIALOG DISPLAY LOGIC ---
 
     return AlertDialog(
       title: Text(application.displayLeaveType),
@@ -889,10 +960,7 @@ class LeaveDetailsDialog extends StatelessWidget {
           _buildDetailRow('Reason:', application.reason),
           const SizedBox(height: 10),
           _buildDetailRow(
-              'Deducted As:',
-              application.deductedAs.isNotEmpty
-                  ? application.deductedAs
-                  : 'N/A'),
+              'Deducted As:', deductedAsText), // Using the new logic
           const SizedBox(height: 10),
           _buildDetailRow('Duration:',
               '${application.endDate.difference(application.startDate).inDays + 1} day(s)'),
